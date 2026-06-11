@@ -40,81 +40,21 @@ std::string AIHelper::chat(int userId,std::string userName, std::string sessionI
     //设置策略
     setStrategy(StrategyFactory::instance().create(modelType));
 
-    
-    if (false == strategy->isMCPModel) {
+    // 记录对话前的消息数量，用于后续持久化
+    size_t beforeSize = messages.size();
 
-        addMessage(userId, userName, true, userQuestion, sessionId);
-        json payload = strategy->buildRequest(this->messages);
+    // 委托给策略执行完整对话流程
+    std::string result = strategy->chat(messages, userQuestion,
+        [this](const json& payload) { return executeCurl(payload); });
 
-        //执行请求
-        json response = executeCurl(payload);
-        std::string answer = strategy->parseResponse(response);
-        addMessage(userId, userName, false, answer, sessionId);
-        return answer.empty() ? "[Error] 无法解析响应" : answer;
-    }
-    //说明支持MCP
-    AIConfig config;
-    config.loadFromFile("../AIApps/ChatServer/resource/config.json");
-    std::string tempUserQuestion =config.buildPrompt(userQuestion);
-    std::cout << "tempUserQuestion is " << tempUserQuestion << std::endl;
-    messages.push_back({ tempUserQuestion, 0 });
-
-    json firstReq = strategy->buildRequest(this->messages);
-    json firstResp = executeCurl(firstReq);
-    std::string aiResult = strategy->parseResponse(firstResp);
-    // 用完立即移除提示词
-    messages.pop_back();
-
-    std::cout << "aiResult is " << aiResult << std::endl;
-    // 解析AI响应（是否工具调用）
-    AIToolCall call = config.parseAIResponse(aiResult);
-
-    // 情况1：AI 不调用工具
-    if (!call.isToolCall) {
-        addMessage(userId, userName, true, userQuestion, sessionId);
-        addMessage(userId, userName, false, aiResult, sessionId);
-
-        std::cout << "No tools required" << std::endl;
-        return aiResult;
+    // 将策略新增的消息异步入库
+    for (size_t i = beforeSize; i < messages.size(); ++i) {
+        bool is_user = (i % 2 == 0);
+        pushMessageToMysql(userId, userName, is_user,
+            messages[i].first, messages[i].second, sessionId);
     }
 
-    // 情况 2：AI 要调用工具
-    json toolResult;
-    AIToolRegistry registry;
-
-    try {
-        toolResult = registry.invoke(call.toolName, call.args);
-        std::cout << "Tool call success" << std::endl;
-    }
-    catch (const std::exception& e) {
-        //大多数情况都不会走这里
-        std::string err = "[工具调用失败] " + std::string(e.what());
-        addMessage(userId, userName, true, userQuestion, sessionId);
-        addMessage(userId, userName, false, err, sessionId);
-
-        std::cout << "Tool call failed" << std::endl << std::string(e.what());
-        return err;
-    }
-
-    // 第二次调用AI
-    // 用同样的 prompt_template，但说明工具执行过
-    std::string secondPrompt = config.buildToolResultPrompt(userQuestion, call.toolName, call.args, toolResult);
-    
-    std::cout << "secondPrompt is " << secondPrompt << std::endl;
-    messages.push_back({ secondPrompt, 0 });
-
-    json secondReq = strategy->buildRequest(messages);
-    json secondResp = executeCurl(secondReq);
-    std::string finalAnswer = strategy->parseResponse(secondResp);
-    //删除包含提示词的信息
-    messages.pop_back();
-
-    std::cout << "finalAnswer is " << finalAnswer << std::endl;
-
-    addMessage(userId, userName, true, userQuestion, sessionId);
-    addMessage(userId, userName, false, finalAnswer, sessionId);
-    return finalAnswer;
-
+    return result;
 }
 
 // 发送自定义请求体

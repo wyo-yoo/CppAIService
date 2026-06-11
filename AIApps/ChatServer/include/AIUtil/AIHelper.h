@@ -10,8 +10,6 @@
 #include"../../../../HttpServer/include/utils/MysqlUtil.h"
 
 #include"AIFactory.h"
-#include"AIConfig.h"
-#include"AIToolRegistry.h"
 
 
 //这边封装curl去访问对阿里的模型
@@ -31,7 +29,7 @@ public:
     void restoreMessage(const std::string& userInput, long long ms);
 
     // 发送聊天消息，返回AI的响应内容
-    // messages: [{"role":"system","content":"..."}, {"role":"user","content":"..."}]
+    // 流程编排已下沉到 AIStrategy::chat()，此处仅委托 + 持久化到 MySQL
     std::string chat(int userId, std::string userName, std::string sessionId, std::string userQuestion, std::string modelType);
 
     // 可选：发送自定义请求体
