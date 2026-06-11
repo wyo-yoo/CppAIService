@@ -18,6 +18,14 @@ bool HttpContext::parseRequest(Buffer *buf, Timestamp receiveTime)
             const char *crlf = buf->findCRLF(); // 注意这个返回值边界可能有错
             if (crlf)
             {
+                // 限制请求行长度，防止超长 URL 攻击
+                size_t lineLen = static_cast<size_t>(crlf - buf->peek());
+                if (lineLen > kMaxRequestLineLength)
+                {
+                    ok = false;
+                    hasMore = false;
+                    continue;
+                }
                 ok = processRequestLine(buf->peek(), crlf);
                 if (ok)
                 {
@@ -40,6 +48,14 @@ bool HttpContext::parseRequest(Buffer *buf, Timestamp receiveTime)
             const char *crlf = buf->findCRLF();
             if (crlf)
             {
+                // 限制请求头总大小，防止 header 泛滥攻击
+                headersParsedSize_ += static_cast<size_t>(crlf + 2 - buf->peek());
+                if (headersParsedSize_ > kMaxHeadersTotalSize)
+                {
+                    ok = false;
+                    hasMore = false;
+                    continue;
+                }
                 const char *colon = std::find(buf->peek(), crlf, ':');
                 if (colon < crlf)
                 {
@@ -55,7 +71,15 @@ bool HttpContext::parseRequest(Buffer *buf, Timestamp receiveTime)
                         std::string contentLength = request_.getHeader("Content-Length");
                         if (!contentLength.empty())
                         {
-                            request_.setContentLength(std::stoi(contentLength));
+                            uint64_t cl = std::stoull(contentLength);
+                            // 限制请求体大小，防止大包 DoS
+                            if (cl > kMaxBodySize)
+                            {
+                                ok = false;
+                                hasMore = false;
+                                continue;
+                            }
+                            request_.setContentLength(cl);
                             if (request_.contentLength() > 0)
                             {
                                 state_ = kExpectBody;
