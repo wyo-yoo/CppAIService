@@ -44,6 +44,7 @@ void ChatCreateAndSendHandler::handle(const http::HttpRequest& req, http::HttpRe
 
 
         std::shared_ptr<AIHelper> AIHelperPtr;
+        bool isNewSession = false;
         {
             std::lock_guard<std::mutex> lock(server_->mutexForChatInformation);
 
@@ -51,14 +52,18 @@ void ChatCreateAndSendHandler::handle(const http::HttpRequest& req, http::HttpRe
 
             if (userSessions.find(sessionId) == userSessions.end()) {
 
-                userSessions.emplace( 
+                userSessions.emplace(
                     sessionId,
                     std::make_shared<AIHelper>()
                 );
-                server_->sessionsIdsMap[userId].push_back(sessionId);
+                isNewSession = true;
             }
             AIHelperPtr= userSessions[sessionId];
 
+        }
+        if (isNewSession) {
+            std::lock_guard<std::mutex> lock(server_->mutexForSessionsId);
+            server_->sessionsIdsMap[userId].push_back(sessionId);
         }
 
         std::string aiInformation=AIHelperPtr->chat(userId, username,sessionId, userQuestion, modelType);
