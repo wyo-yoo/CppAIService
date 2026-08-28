@@ -49,6 +49,11 @@ public:
 	void setThreadNum(int numThreads);
 	void start();
 	void initChatMessage();
+	// 发送异步 handler 的延迟响应（耗时接口的工作线程完成后调用，如语音合成）
+	void sendDeferredResponse(const http::HttpResponse& resp)
+	{
+		httpServer_.sendDeferredResponse(resp);
+	}
 private:
 	friend class ChatLoginHandler;
 	friend class ChatRegisterHandler;

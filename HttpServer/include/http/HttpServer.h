@@ -1,13 +1,15 @@
-#pragma once 
+#pragma once
 
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <functional>
 #include <iostream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 
 #include <muduo/net/TcpServer.h>
@@ -92,6 +94,9 @@ public:
         router_.addRegexCallback(method, path, callback);
     }
 
+    // 发送延迟响应：异步 handler 的工作线程完成后调用，按其 delayedId 找回连接并发送
+    void sendDeferredResponse(const http::HttpResponse& response);
+
     // 设置会话管理器
     void setSessionManager(std::unique_ptr<session::SessionManager> manager)
     {
@@ -137,9 +142,20 @@ private:
     std::unique_ptr<session::SessionManager>     sessionManager_; // 会话管理器
     middleware::MiddlewareChain                  middlewareChain_; // 中间件链
     std::unique_ptr<ssl::SslContext>             sslCtx_; // SSL 上下文
-    bool                                         useSSL_; // 是否使用 SSL   
-    // TcpConnectionPtr -> SslConnectionPtr 
+    bool                                         useSSL_; // 是否使用 SSL
+    // TcpConnectionPtr -> SslConnectionPtr
     std::map<muduo::net::TcpConnectionPtr, std::unique_ptr<ssl::SslConnection>> sslConns_;
+
+    // ---- 延迟响应支持 ----
+    // 延迟响应条目：暂存的连接 + 中间件处理过的响应（保留 CORS 等响应头）
+    struct DeferredEntry
+    {
+        muduo::net::TcpConnectionPtr conn;
+        http::HttpResponse           resp;
+    };
+    std::mutex                deferredMutex_;          // 保护 deferredEntries_ 的互斥锁
+    std::unordered_map<uint64_t, DeferredEntry> deferredEntries_; // 延迟响应 ID -> 连接与响应
+    std::atomic<uint64_t>     nextDeferredId_{1};      // 延迟响应 ID 自增分配器（多 IO 线程安全）
 }; 
 
 } // namespace http

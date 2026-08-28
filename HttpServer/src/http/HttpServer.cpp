@@ -3,6 +3,7 @@
 #include <any>
 #include <functional>
 #include <memory>
+#include <utility>
 
 namespace http
 {
@@ -149,8 +150,20 @@ void HttpServer::onRequest(const muduo::net::TcpConnectionPtr &conn, const HttpR
                   (req.getVersion() == "HTTP/1.0" && connection != "Keep-Alive"));
     HttpResponse response(close);
 
+    // 为响应分配延迟 ID（异步 handler 用它找回连接；同步请求不用则忽略）
+    response.setDeferredId(nextDeferredId_.fetch_add(1));
+
     // 根据请求报文信息来封装响应报文对象
     httpCallback_(req, &response); // 执行onHttpCallback函数
+
+    // 延迟响应：handler 标记了异步处理，暂存连接与响应（含中间件添加的头），
+    // 等工作线程完成后由 sendDeferredResponse 发送，此处直接返回不阻塞网络线程
+    if (response.deferred())
+    {
+        std::lock_guard<std::mutex> lock(deferredMutex_);
+        deferredEntries_[response.deferredId()] = DeferredEntry{conn, response};
+        return;
+    }
 
     // 可以给response设置一个成员，判断是否请求的是文件，如果是文件设置为true，并且存在文件位置在这里send出去。
     muduo::net::Buffer buf;
@@ -163,6 +176,38 @@ void HttpServer::onRequest(const muduo::net::TcpConnectionPtr &conn, const HttpR
     if (response.closeConnection())
     {
         conn->shutdown();
+    }
+}
+
+// 发送延迟响应：异步 handler 的工作线程完成后调用（线程安全：muduo 连接支持跨线程发送）
+void HttpServer::sendDeferredResponse(const http::HttpResponse &response)
+{
+    DeferredEntry entry;
+    {
+        std::lock_guard<std::mutex> lock(deferredMutex_);
+        auto it = deferredEntries_.find(response.deferredId());
+        if (it == deferredEntries_.end())
+        {
+            LOG_WARN << "sendDeferredResponse: deferred id not found: " << response.deferredId();
+            return;
+        }
+        entry = std::move(it->second);
+        deferredEntries_.erase(it);
+    }
+
+    // 以中间件处理过的响应为基础（保留 CORS 等响应头），合并工作线程填充的状态与内容
+    HttpResponse finalResp = entry.resp;
+    finalResp.mergeFrom(response);
+
+    muduo::net::Buffer buf;
+    finalResp.appendToBuffer(&buf);
+    LOG_INFO << "Sending deferred response:\n" << buf.toStringPiece().as_string();
+
+    // 跨线程发送（muduo 保证线程安全）；连接可能已关闭，muduo 内部会安全处理
+    entry.conn->send(&buf);
+    if (finalResp.closeConnection())
+    {
+        entry.conn->shutdown();
     }
 }
 
