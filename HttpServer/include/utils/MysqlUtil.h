@@ -18,10 +18,17 @@ public:
     }
 
     template<typename... Args>
-    sql::ResultSet* executeQuery(const std::string& sql, Args&&... args)
+    std::shared_ptr<sql::ResultSet> executeQuery(const std::string& sql, Args&&... args)
     {
         auto conn = http::db::DbConnectionPool::getInstance().getConnection();
-        return conn->executeQuery(sql, std::forward<Args>(args)...);
+        struct QueryLease {
+            std::shared_ptr<http::db::DbConnection> connection;
+            std::shared_ptr<sql::ResultSet> result;
+        };
+        auto lease = std::make_shared<QueryLease>();
+        lease->connection = conn;
+        lease->result = conn->executeQuery(sql, std::forward<Args>(args)...);
+        return std::shared_ptr<sql::ResultSet>(lease, lease->result.get());
     }
 
     template<typename... Args>

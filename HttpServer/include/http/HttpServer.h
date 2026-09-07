@@ -135,8 +135,8 @@ private:
     
 private:
     muduo::net::InetAddress                      listenAddr_; // 监听地址
-    muduo::net::TcpServer                        server_; 
     muduo::net::EventLoop                        mainLoop_; // 主循环
+    muduo::net::TcpServer                        server_;
     HttpCallback                                 httpCallback_; // 回调函数
     router::Router                               router_; // 路由
     std::unique_ptr<session::SessionManager>     sessionManager_; // 会话管理器
@@ -156,6 +156,8 @@ private:
     std::mutex                deferredMutex_;          // 保护 deferredEntries_ 的互斥锁
     std::unordered_map<uint64_t, DeferredEntry> deferredEntries_; // 延迟响应 ID -> 连接与响应
     std::atomic<uint64_t>     nextDeferredId_{1};      // 延迟响应 ID 自增分配器（多 IO 线程安全）
+    std::mutex streamsMutex_;
+    std::unordered_map<std::string, std::weak_ptr<ResponseStream>> streams_;
 }; 
 
 } // namespace http

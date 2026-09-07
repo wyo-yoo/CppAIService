@@ -4,6 +4,7 @@
 #include <string>
 #include <unordered_map>
 #include <chrono>
+#include <mutex>
 
 namespace http
 {
@@ -25,10 +26,10 @@ public:
     void refresh(); // 刷新过期时间
 
     void setManager(SessionManager* sessionManager) 
-    { sessionManager_ = sessionManager; }
+    { std::lock_guard<std::mutex> lock(mutex_); sessionManager_ = sessionManager; }
 
     SessionManager* getManager() const 
-    { return sessionManager_; }
+    { std::lock_guard<std::mutex> lock(mutex_); return sessionManager_; }
 
     // 数据存取
     void setValue(const std::string&key, const std::string&value);
@@ -41,6 +42,7 @@ private:
     std::chrono::system_clock::time_point        expiryTime_;
     int                                          maxAge_; // 过期时间（秒）
     SessionManager*                              sessionManager_;
+    mutable std::mutex mutex_;
 };
 
 } // namespace session

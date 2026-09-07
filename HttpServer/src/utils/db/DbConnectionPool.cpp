@@ -36,11 +36,7 @@ void DbConnectionPool::init(const std::string& host,
     LOG_INFO << "Database connection pool initialized with " << poolSize << " connections";
 }
 
-DbConnectionPool::DbConnectionPool() 
-{
-    checkThread_ = std::thread(&DbConnectionPool::checkConnections, this);
-    checkThread_.detach();
-}
+DbConnectionPool::DbConnectionPool() = default;
 
 DbConnectionPool::~DbConnectionPool() 
 {
@@ -104,56 +100,6 @@ std::shared_ptr<DbConnection> DbConnectionPool::getConnection()
 std::shared_ptr<DbConnection> DbConnectionPool::createConnection() 
 {
     return std::make_shared<DbConnection>(host_, user_, password_, database_);
-}
-
-// 修改检查连接的函数
-void DbConnectionPool::checkConnections() 
-{
-    while (true) 
-    {
-        try 
-        {
-            std::vector<std::shared_ptr<DbConnection>> connsToCheck;
-            {
-                std::unique_lock<std::mutex> lock(mutex_);
-                if (connections_.empty()) 
-                {
-                    std::this_thread::sleep_for(std::chrono::seconds(1));
-                    continue;
-                }
-                
-                auto temp = connections_;
-                while (!temp.empty()) 
-                {
-                    connsToCheck.push_back(temp.front());
-                    temp.pop();
-                }
-            }
-            
-            // 在锁外检查连接
-            for (auto& conn : connsToCheck) 
-            {
-                if (!conn->ping()) 
-                {
-                    try 
-                    {
-                        conn->reconnect();
-                    } 
-                    catch (const std::exception& e) 
-                    {
-                        LOG_ERROR << "Failed to reconnect: " << e.what();
-                    }
-                }
-            }
-            
-            std::this_thread::sleep_for(std::chrono::seconds(60));
-        } 
-        catch (const std::exception& e) 
-        {
-            LOG_ERROR << "Error in check thread: " << e.what();
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-        }
-    }
 }
 
 } // namespace db

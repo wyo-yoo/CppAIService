@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <map>
 #include <string>
+#include <functional>
+#include "ResponseStream.h"
 
 #include <muduo/net/TcpServer.h>
 
@@ -98,6 +100,19 @@ public:
 
     void setErrorHeader(){}
 
+    using StreamHandler = std::function<void(std::shared_ptr<ResponseStream>)>;
+    // 回答长度尚未知，移除 Content-Length，以关闭连接标记响应结束；正文格式为 SSE。
+    void setStreamHandler(StreamHandler handler) {
+        streamHandler_ = std::move(handler);
+        closeConnection_ = true;
+        headers_.erase("Content-Length");
+        headers_["Content-Type"] = "text/event-stream; charset=utf-8";
+        // 提示客户端及代理不要缓存或转换响应，并通知支持此头的 Nginx 禁用缓冲，及时转发片段。
+        headers_["Cache-Control"] = "no-cache, no-transform";
+        headers_["X-Accel-Buffering"] = "no";
+    }
+    const StreamHandler& streamHandler() const { return streamHandler_; }
+
     void appendToBuffer(muduo::net::Buffer* outputBuf) const;
 private:
     std::string                        httpVersion_; 
@@ -109,6 +124,7 @@ private:
     bool                               isFile_;
     bool                               deferred_;   // 是否为延迟响应（异步 handler 完成后发送）
     uint64_t                           deferredId_; // 延迟响应 ID（对应 HttpServer 中暂存的连接）
+    StreamHandler streamHandler_;
 };
 
 } // namespace http

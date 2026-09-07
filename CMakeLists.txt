@@ -1,93 +1,60 @@
-cmake_minimum_required(VERSION 3.10)
-project(http_server)
-
-# 设置 C++ 标准
+cmake_minimum_required(VERSION 3.16)
+project(http_server LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# 查找 OpenSSL 和 CURL
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+option(CHAT_ENABLE_IMAGES "Build ONNX/OpenCV image classification" ON)
+option(CHAT_BUILD_TESTS "Build isolated chat/HTTP regression tests" ON)
+find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(CURL REQUIRED)
-
-# 添加头文件路径
-include_directories(
-    ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_SOURCE_DIR}/HttpServer/include
+find_package(Boost REQUIRED COMPONENTS chrono system)
+find_package(nlohmann_json REQUIRED)
+find_path(MUDUO_INCLUDE_DIR muduo/net/TcpServer.h REQUIRED)
+find_library(MUDUO_NET muduo_net REQUIRED)
+find_library(MUDUO_BASE muduo_base REQUIRED)
+find_path(AMQP_INCLUDE_DIR SimpleAmqpClient/SimpleAmqpClient.h REQUIRED)
+find_library(AMQP_LIBRARY SimpleAmqpClient REQUIRED)
+find_library(RABBITMQ_LIBRARY rabbitmq REQUIRED)
+find_library(MYSQLCPPCONN_LIBRARY mysqlcppconn REQUIRED)
+find_library(MYSQLCLIENT_LIBRARY mysqlclient REQUIRED)
+file(GLOB_RECURSE HTTP_SOURCES CONFIGURE_DEPENDS HttpServer/src/*.cpp)
+file(GLOB_RECURSE CHAT_SOURCES CONFIGURE_DEPENDS AIApps/ChatServer/src/*.cpp)
+list(REMOVE_ITEM CHAT_SOURCES "${PROJECT_SOURCE_DIR}/AIApps/ChatServer/src/main.cpp")
+if(CHAT_ENABLE_IMAGES)
+    find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs dnn)
+    find_path(ONNX_INCLUDE_DIR onnxruntime_cxx_api.h REQUIRED)
+    find_library(ONNX_LIBRARY onnxruntime REQUIRED)
+else()
+    list(REMOVE_ITEM CHAT_SOURCES "${PROJECT_SOURCE_DIR}/AIApps/ChatServer/src/AIUtil/ImageRecognizer.cpp")
+endif()
+add_library(chat_application STATIC ${HTTP_SOURCES} ${CHAT_SOURCES})
+target_include_directories(chat_application PUBLIC
+    ${PROJECT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/HttpServer/include
+    ${PROJECT_SOURCE_DIR}/HttpServer/include/utils
     ${PROJECT_SOURCE_DIR}/AIApps/ChatServer/include
-    /usr/include/mysql-cppconn-8
-    /usr/include/mysql
-    ${OPENSSL_INCLUDE_DIR}
-    ${CURL_INCLUDE_DIRS}
-    /usr/include/opencv4          # OpenCV 头文件路径
-    /usr/local/include            # SimpleAmqpClient & ONNX Runtime
-)
-
-# 查找必要的库
-find_library(MYSQLCPPCONN_LIBRARY
-    NAMES mysqlcppconn mysqlcppconn8
-    PATHS /usr/lib /usr/lib64 /usr/local/lib
-)
-
-find_library(ONNXRUNTIME_LIBRARY
-    NAMES onnxruntime
-    PATHS /usr/lib /usr/lib64 /usr/local/lib
-)
-
-# 添加源文件
-file(GLOB_RECURSE HTTP_SERVER_SRC
-    "${PROJECT_SOURCE_DIR}/HttpServer/src/*.cpp"
-)
-
-file(GLOB_RECURSE GOMOKU_SERVER_SRC
-    "${PROJECT_SOURCE_DIR}/AIApps/ChatServer/src/*.cpp"
-)
-
-# 主程序文件
-set(MAIN_SRC "${PROJECT_SOURCE_DIR}/AIApps/ChatServer/src/main.cpp")
-
-# 添加可执行文件
-add_executable(http_server
-    ${MAIN_SRC}
-    ${HTTP_SERVER_SRC}
-    ${GOMOKU_SERVER_SRC}
-)
-
-# 链接库
-target_link_libraries(http_server
-    pthread
-    muduo_net
-    muduo_base
-    mysqlcppconn
-    mysqlclient
-    ssl
-    crypto
-    ${CURL_LIBRARIES}
-    ${OPENCV4_LIBRARIES}
-    /usr/lib/x86_64-linux-gnu/libopencv_core.so
-    /usr/lib/x86_64-linux-gnu/libopencv_imgproc.so
-    /usr/lib/x86_64-linux-gnu/libopencv_highgui.so
-    /usr/lib/x86_64-linux-gnu/libopencv_imgcodecs.so
-    /usr/lib/x86_64-linux-gnu/libopencv_videoio.so
-    /usr/lib/x86_64-linux-gnu/libopencv_dnn.so
-
-    ${ONNXRUNTIME_LIBRARY}        # 自动查找的 ONNX Runtime 库
-
-    SimpleAmqpClient
-    rabbitmq
-)
-
-# 如果库不在默认路径，添加链接目录
-link_directories(/usr/local/lib)
-
-# 打印调试信息
-message(STATUS "Include directories:")
-get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)
-foreach(dir ${dirs})
-    message(STATUS "  ${dir}")
-endforeach()
-
-message(STATUS "ONNX Runtime library: ${ONNXRUNTIME_LIBRARY}")
-message(STATUS "Main source file: ${MAIN_SRC}")
-message(STATUS "HTTP Server sources: ${HTTP_SERVER_SRC}")
-message(STATUS "Gomoku Server sources: ${GOMOKU_SERVER_SRC}")
+    ${MUDUO_INCLUDE_DIR} ${AMQP_INCLUDE_DIR})
+target_link_libraries(chat_application PUBLIC Threads::Threads OpenSSL::SSL OpenSSL::Crypto CURL::libcurl
+    nlohmann_json::nlohmann_json
+    ${MUDUO_NET} ${MUDUO_BASE} ${MYSQLCPPCONN_LIBRARY} ${MYSQLCLIENT_LIBRARY}
+    ${AMQP_LIBRARY} ${RABBITMQ_LIBRARY} Boost::chrono Boost::system)
+target_compile_definitions(chat_application PUBLIC CHAT_ENABLE_IMAGES=$<BOOL:${CHAT_ENABLE_IMAGES}>)
+if(CHAT_ENABLE_IMAGES)
+    target_include_directories(chat_application PUBLIC ${OpenCV_INCLUDE_DIRS} ${ONNX_INCLUDE_DIR})
+    target_link_libraries(chat_application PUBLIC ${OpenCV_LIBS} ${ONNX_LIBRARY})
+endif()
+add_executable(http_server AIApps/ChatServer/src/main.cpp)
+target_link_libraries(http_server PRIVATE chat_application)
+if(CHAT_BUILD_TESTS)
+    enable_testing()
+    add_executable(chat_core_tests tests/chat_core_tests.cpp)
+    target_link_libraries(chat_core_tests PRIVATE chat_application)
+    add_test(NAME chat_core COMMAND chat_core_tests)
+    add_executable(chat_http_fixture tests/chat_http_fixture.cpp)
+    target_link_libraries(chat_http_fixture PRIVATE chat_application)
+    add_executable(chat_session_fixture tests/chat_session_fixture.cpp)
+    target_link_libraries(chat_session_fixture PRIVATE chat_application)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME chat_transport COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/test_transport.py $<TARGET_FILE:chat_core_tests>)
+    add_test(NAME chat_http COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/test_http.py $<TARGET_FILE:chat_http_fixture>)
+endif()

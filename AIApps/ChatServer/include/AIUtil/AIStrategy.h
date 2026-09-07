@@ -8,7 +8,7 @@
 #include <functional>
 #include <chrono>
 
-#include "../../../../HttpServer/include/utils/JsonUtil.h"
+#include "utils/JsonUtil.h"
 
 
 
@@ -39,7 +39,7 @@ public:
     virtual std::string chat(
         std::vector<std::pair<std::string, long long>>& messages,
         const std::string& userQuestion,
-        std::function<json(const json&)> httpExecutor
+        std::function<json(const json&, bool)> httpExecutor
     ) = 0;
 
 protected:
@@ -70,7 +70,7 @@ public:
     std::string chat(
         std::vector<std::pair<std::string, long long>>& messages,
         const std::string& userQuestion,
-        std::function<json(const json&)> httpExecutor) override;
+        std::function<json(const json&, bool)> httpExecutor) override;
 
 private:
     std::string apiKey_;
@@ -94,7 +94,7 @@ public:
     std::string chat(
         std::vector<std::pair<std::string, long long>>& messages,
         const std::string& userQuestion,
-        std::function<json(const json&)> httpExecutor) override;
+        std::function<json(const json&, bool)> httpExecutor) override;
 
 private:
     std::string apiKey_;
@@ -119,7 +119,7 @@ public:
     std::string chat(
         std::vector<std::pair<std::string, long long>>& messages,
         const std::string& userQuestion,
-        std::function<json(const json&)> httpExecutor) override;
+        std::function<json(const json&, bool)> httpExecutor) override;
 
 private:
     std::string apiKey_;
@@ -144,7 +144,7 @@ public:
     std::string chat(
         std::vector<std::pair<std::string, long long>>& messages,
         const std::string& userQuestion,
-        std::function<json(const json&)> httpExecutor) override;
+        std::function<json(const json&, bool)> httpExecutor) override;
 
 private:
     std::string apiKey_;

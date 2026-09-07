@@ -1,9 +1,9 @@
 #pragma once
 
-#include "../../../../HttpServer/include/router/RouterHandler.h"
-#include "../../../HttpServer/include/utils/MysqlUtil.h"
+#include "router/RouterHandler.h"
+#include "utils/MysqlUtil.h"
 #include"../ChatServer.h"
-#include "../../../HttpServer/include/utils/JsonUtil.h"
+#include "utils/JsonUtil.h"
 
 class ChatLoginHandler : public http::router::RouterHandler
 {

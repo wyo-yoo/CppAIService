@@ -1,6 +1,6 @@
 #pragma once
-#include "../../../../HttpServer/include/router/RouterHandler.h"
-#include "../../../HttpServer/include/utils/MysqlUtil.h"
+#include "router/RouterHandler.h"
+#include "utils/MysqlUtil.h"
 
 #include"../AIUtil/AISessionIdGenerator.h"
 #include "../ChatServer.h"

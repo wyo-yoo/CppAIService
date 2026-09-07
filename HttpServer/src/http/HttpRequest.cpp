@@ -1,4 +1,6 @@
 #include "../../include/http/HttpRequest.h"
+#include <algorithm>
+#include <cctype>
 
 namespace http
 {
@@ -117,13 +119,16 @@ void HttpRequest::addHeader(const char *start, const char *colon, const char *en
     {
         value.resize(value.size() - 1);
     }
+    std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) { return std::tolower(c); });
     headers_[key] = value;
 }
 
 std::string HttpRequest::getHeader(const std::string &field) const
 {
     std::string result;
-    auto it = headers_.find(field);
+    std::string normalized = field;
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char c) { return std::tolower(c); });
+    auto it = headers_.find(normalized);
     if (it != headers_.end())
     {
         result = it->second;
@@ -140,6 +145,8 @@ void HttpRequest::swap(HttpRequest &that)
     std::swap(version_, that.version_);
     std::swap(headers_, that.headers_);
     std::swap(receiveTime_, that.receiveTime_);
+    std::swap(content_, that.content_);
+    std::swap(contentLength_, that.contentLength_);
 }
 
 } // namespace http

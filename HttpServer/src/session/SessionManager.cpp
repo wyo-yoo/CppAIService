@@ -45,6 +45,7 @@ std::shared_ptr<Session> SessionManager::getSession(const HttpRequest& req, Http
 // 生成唯一的会话标识符，确保会话的唯一性和安全性
 std::string SessionManager::generateSessionId()
 {
+    std::lock_guard<std::mutex> lock(rngMutex_);
     std::stringstream ss;
     std::uniform_int_distribution<> dist(0, 15);
 

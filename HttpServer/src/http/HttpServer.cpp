@@ -77,6 +77,14 @@ void HttpServer::onConnection(const muduo::net::TcpConnectionPtr& conn)
     }
     else 
     {
+        {
+            std::lock_guard<std::mutex> lock(streamsMutex_);
+            auto it = streams_.find(conn->name());
+            if (it != streams_.end()) {
+                if (auto stream = it->second.lock()) stream->disconnect();
+                streams_.erase(it);
+            }
+        }
         if (useSSL_)
         {
             sslConns_.erase(conn);
@@ -90,6 +98,15 @@ void HttpServer::onMessage(const muduo::net::TcpConnectionPtr &conn,
 {
     try
     {
+        {
+            std::lock_guard<std::mutex> lock(streamsMutex_);
+            if (streams_.count(conn->name())) {
+                // A close-delimited streaming connection cannot accept another response.
+                buf->retrieveAll();
+                conn->forceClose();
+                return;
+            }
+        }
         // 这层判断只是代表是否支持ssl
         if (useSSL_)
         {
@@ -156,6 +173,37 @@ void HttpServer::onRequest(const muduo::net::TcpConnectionPtr &conn, const HttpR
     // 根据请求报文信息来封装响应报文对象
     httpCallback_(req, &response); // 执行onHttpCallback函数
 
+    // 流式响应先发响应头，再由业务回调持续写事件；这里不等待模型生成完整正文。
+    if (response.streamHandler()) {
+        std::weak_ptr<muduo::net::TcpConnection> weakConn = conn;
+        // 将业务层的 send/finish 绑定到 TCP 连接；弱引用避免生成任务延长已断开连接的生命周期。
+        auto stream = std::make_shared<ResponseStream>(
+            [weakConn](const std::string& bytes) {
+                if (auto connection = weakConn.lock()) connection->send(bytes);
+            },
+            [weakConn]() {
+                if (auto connection = weakConn.lock()) connection->shutdown();
+            });
+        {
+            std::lock_guard<std::mutex> lock(streamsMutex_);
+            streams_[conn->name()] = stream;
+        }
+        std::weak_ptr<ResponseStream> weakStream = stream;
+        // 慢客户端导致待发送缓冲超过阈值时，关闭流与连接，上层取消检查会终止模型请求。
+        conn->setHighWaterMarkCallback([weakStream](const muduo::net::TcpConnectionPtr& connection, size_t) {
+            if (auto output = weakStream.lock()) output->disconnect();
+            connection->forceClose();
+        }, 1024 * 1024);
+        muduo::net::Buffer headers;
+        response.appendToBuffer(&headers);
+        conn->send(&headers);
+        // Start only after response headers and disconnect tracking are ready.
+        // 响应头与断连跟踪已就绪，此时才启动 ChatFeatures 注册的工作任务。
+        try { response.streamHandler()(stream); }
+        catch (...) { stream->finish(); }
+        return;
+    }
+
     // 延迟响应：handler 标记了异步处理，暂存连接与响应（含中间件添加的头），
     // 等工作线程完成后由 sendDeferredResponse 发送，此处直接返回不阻塞网络线程
     if (response.deferred())
@@ -168,8 +216,6 @@ void HttpServer::onRequest(const muduo::net::TcpConnectionPtr &conn, const HttpR
     // 可以给response设置一个成员，判断是否请求的是文件，如果是文件设置为true，并且存在文件位置在这里send出去。
     muduo::net::Buffer buf;
     response.appendToBuffer(&buf);
-    // 打印完整的响应内容用于调试
-    LOG_INFO << "Sending response:\n" << buf.toStringPiece().as_string();
 
     conn->send(&buf);
     // 如果是短连接的话，返回响应报文后就断开连接
@@ -201,7 +247,6 @@ void HttpServer::sendDeferredResponse(const http::HttpResponse &response)
 
     muduo::net::Buffer buf;
     finalResp.appendToBuffer(&buf);
-    LOG_INFO << "Sending deferred response:\n" << buf.toStringPiece().as_string();
 
     // 跨线程发送（muduo 保证线程安全）；连接可能已关闭，muduo 内部会安全处理
     entry.conn->send(&buf);

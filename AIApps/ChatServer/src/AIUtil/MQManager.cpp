@@ -18,6 +18,7 @@ void MQManager::publish(const std::string& queue, const std::string& msg) {
 
     std::lock_guard<std::mutex> lock(conn->mtx);
     auto message = AmqpClient::BasicMessage::Create(msg);
+    message->DeliveryMode(AmqpClient::BasicMessage::dm_persistent);
     conn->channel->BasicPublish("", queue, message);
 }
 
@@ -54,8 +55,14 @@ void RabbitMQThreadPool::worker(int id) {
             bool ok = channel->BasicConsumeMessage(consumer_tag, env, 500); // 500ms 
             if (ok && env) {
                 std::string msg = env->Message()->Body();
-                handler_(msg);          
-                channel->BasicAck(env); 
+                try {
+                    handler_(msg);
+                    channel->BasicAck(env);
+                } catch (const std::exception& error) {
+                    std::cerr << "Message persistence failed: " << error.what() << std::endl;
+                    channel->BasicReject(env, true);
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                }
             }
         }
 

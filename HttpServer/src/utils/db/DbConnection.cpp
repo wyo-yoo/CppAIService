@@ -58,6 +58,7 @@ DbConnection::~DbConnection()
 
 bool DbConnection::ping() 
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     try 
     {
         // 不使用 getStmt，直接创建新的语句
@@ -74,6 +75,7 @@ bool DbConnection::ping()
 
 bool DbConnection::isValid() 
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     try 
     {
         if (!conn_) return false;
@@ -89,6 +91,7 @@ bool DbConnection::isValid()
 
 void DbConnection::reconnect() 
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     try 
     {
         if (conn_) 
@@ -138,14 +141,7 @@ void DbConnection::cleanup()
     catch (const std::exception& e) 
     {
         LOG_WARN << "Error cleaning up connection: " << e.what();
-        try 
-        {
-            reconnect();
-        } 
-        catch (...) 
-        {
-            // 忽略重连错误
-        }
+        // Cleanup must not reconnect while the connection is being destroyed.
     }
 }
 

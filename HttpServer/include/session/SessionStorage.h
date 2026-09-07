@@ -1,6 +1,7 @@
 #pragma once
 #include "Session.h"
 #include <memory>
+#include <mutex>
 
 namespace http
 {
@@ -25,6 +26,7 @@ public:
     void remove(const std::string& sessionId) override;
 private:
     std::unordered_map<std::string, std::shared_ptr<Session>> sessions_;
+    std::mutex mutex_;
 };
 
 } // namespace session

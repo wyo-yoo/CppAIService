@@ -43,7 +43,6 @@ private:
 
     std::shared_ptr<DbConnection> createConnection();
 
-    void checkConnections(); // 添加连接检查方法
 
 private:
     std::string                               host_;
@@ -54,7 +53,6 @@ private:
     std::mutex                                mutex_;
     std::condition_variable                   cv_;
     bool                                      initialized_ = false;
-    std::thread                               checkThread_; // 添加检查线程
 };
 
 } // namespace db

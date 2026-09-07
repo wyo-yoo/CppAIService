@@ -50,11 +50,11 @@ std::string AliyunStrategy::parseResponse(const json& response) const {
 std::string AliyunStrategy::chat(
     std::vector<std::pair<std::string, long long>>& messages,
     const std::string& userQuestion,
-    std::function<json(const json&)> httpExecutor)
+    std::function<json(const json&, bool)> httpExecutor)
 {
     messages.push_back({userQuestion, nowMs()});
     json payload = buildRequest(messages);
-    json response = httpExecutor(payload);
+    json response = httpExecutor(payload, true);
     std::string answer = parseResponse(response);
     messages.push_back({answer, nowMs()});
     return answer.empty() ? "[Error] 无法解析响应" : answer;
@@ -108,11 +108,11 @@ std::string DouBaoStrategy::parseResponse(const json& response) const {
 std::string DouBaoStrategy::chat(
     std::vector<std::pair<std::string, long long>>& messages,
     const std::string& userQuestion,
-    std::function<json(const json&)> httpExecutor)
+    std::function<json(const json&, bool)> httpExecutor)
 {
     messages.push_back({userQuestion, nowMs()});
     json payload = buildRequest(messages);
-    json response = httpExecutor(payload);
+    json response = httpExecutor(payload, true);
     std::string answer = parseResponse(response);
     messages.push_back({answer, nowMs()});
     return answer.empty() ? "[Error] 无法解析响应" : answer;
@@ -164,11 +164,11 @@ std::string AliyunRAGStrategy::parseResponse(const json& response) const {
 std::string AliyunRAGStrategy::chat(
     std::vector<std::pair<std::string, long long>>& messages,
     const std::string& userQuestion,
-    std::function<json(const json&)> httpExecutor)
+    std::function<json(const json&, bool)> httpExecutor)
 {
     messages.push_back({userQuestion, nowMs()});
     json payload = buildRequest(messages);
-    json response = httpExecutor(payload);
+    json response = httpExecutor(payload, true);
     std::string answer = parseResponse(response);
     messages.push_back({answer, nowMs()});
     return answer.empty() ? "[Error] 无法解析响应" : answer;
@@ -222,7 +222,7 @@ std::string AliyunMcpStrategy::parseResponse(const json& response) const {
 std::string AliyunMcpStrategy::chat(
     std::vector<std::pair<std::string, long long>>& messages,
     const std::string& userQuestion,
-    std::function<json(const json&)> httpExecutor)
+    std::function<json(const json&, bool)> httpExecutor)
 {
     // 加载 MCP 配置（prompt 模板 + 工具列表）
     AIConfig config;
@@ -230,21 +230,21 @@ std::string AliyunMcpStrategy::chat(
 
     // 第一次调用：注入 prompt，让模型判断是否需要工具
     std::string tempUserQuestion = config.buildPrompt(userQuestion);
-    std::cout << "tempUserQuestion is " << tempUserQuestion << std::endl;
     messages.push_back({tempUserQuestion, 0});
 
     json firstReq = buildRequest(messages);
-    json firstResp = httpExecutor(firstReq);
+    // false 表示内部工具判断阶段：先拿到完整结果，解析是否需要调用工具，不向前端逐段转发。
+    json firstResp = httpExecutor(firstReq, false);
     std::string aiResult = parseResponse(firstResp);
     // 用完立即移除提示词
     messages.pop_back();
 
-    std::cout << "aiResult is " << aiResult << std::endl;
 
     // 解析AI响应（是否工具调用）
     AIToolCall call = config.parseAIResponse(aiResult);
 
     // 情况1：AI 不调用工具
+    // 无需工具时直接返回首轮完整回答；AIHelper 会将其补发为一个 delta 事件。
     if (!call.isToolCall) {
         messages.push_back({userQuestion, nowMs()});
         messages.push_back({aiResult, nowMs()});
@@ -271,16 +271,15 @@ std::string AliyunMcpStrategy::chat(
     // 第二次调用：用同样的 prompt_template，但说明工具执行过
     std::string secondPrompt = config.buildToolResultPrompt(
         userQuestion, call.toolName, call.args, toolResult);
-    std::cout << "secondPrompt is " << secondPrompt << std::endl;
     messages.push_back({secondPrompt, 0});
 
     json secondReq = buildRequest(messages);
-    json secondResp = httpExecutor(secondReq);
+    // true 表示面向用户的最终回答；流式入口提供 delta 回调时，这一轮边生成边发送。
+    json secondResp = httpExecutor(secondReq, true);
     std::string finalAnswer = parseResponse(secondResp);
     // 删除包含提示词的信息
     messages.pop_back();
 
-    std::cout << "finalAnswer is " << finalAnswer << std::endl;
 
     messages.push_back({userQuestion, nowMs()});
     messages.push_back({finalAnswer, nowMs()});
@@ -289,8 +288,3 @@ std::string AliyunMcpStrategy::chat(
 
 
 // ========== 静态注册（利用全局变量自动注册到工厂）==========
-
-static StrategyRegister<AliyunStrategy> regAliyun("1");
-static StrategyRegister<DouBaoStrategy> regDoubao("2");
-static StrategyRegister<AliyunRAGStrategy> regAliyunRag("3");
-static StrategyRegister<AliyunMcpStrategy> regAliyunMcp("4");

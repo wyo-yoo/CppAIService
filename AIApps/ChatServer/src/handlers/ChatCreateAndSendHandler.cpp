@@ -51,6 +51,8 @@ void ChatCreateAndSendHandler::handle(const http::HttpRequest& req, http::HttpRe
             auto& userSessions = server_->chatInformation[userId];
 
             if (userSessions.find(sessionId) == userSessions.end()) {
+                server_->ensureSessionRecord(userId, sessionId, "新会话");
+                server_->sessionNames_[userId][sessionId] = "新会话";
 
                 userSessions.emplace(
                     sessionId,
@@ -95,7 +97,6 @@ void ChatCreateAndSendHandler::handle(const http::HttpRequest& req, http::HttpRe
         resp->setBody(failureBody);
     }
 }
-
 
 
 

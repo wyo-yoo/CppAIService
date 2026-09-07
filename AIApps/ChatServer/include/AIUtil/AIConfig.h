@@ -6,7 +6,7 @@
 #include <fstream>                                  // 引入 std::ifstream 文件读取流（用于加载配置文件）
 #include <sstream>                                  // 引入 std::stringstream 字符串流
 #include <iostream>                                 // 引入标准输入输出流
-#include "../../../../HttpServer/include/utils/JsonUtil.h"     // 引入 JsonUtil 工具（json 类型定义）
+#include "utils/JsonUtil.h"     // 引入 JsonUtil 工具（json 类型定义）
 
 
 struct AITool {                                     // AI 工具描述结构体：定义可供 AI 调用的外部工具信息

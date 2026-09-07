@@ -3,6 +3,7 @@
 
 void AIUploadSendHandler::handle(const http::HttpRequest& req, http::HttpResponse* resp)
 {
+#if CHAT_ENABLE_IMAGES
     try
     {
 
@@ -86,7 +87,11 @@ void AIUploadSendHandler::handle(const http::HttpRequest& req, http::HttpRespons
         resp->setContentLength(failureBody.size());
         resp->setBody(failureBody);
     }
+#else
+    const std::string body = R"({"success":false,"message":"当前构建未启用图片识别"})";
+    resp->setStatusLine(req.getVersion(), static_cast<http::HttpResponse::HttpStatusCode>(503), "Service Unavailable");
+    resp->setContentType("application/json"); resp->setBody(body); resp->setContentLength(body.size());
+#endif
 }
-
 
 

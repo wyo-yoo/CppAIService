@@ -14,7 +14,19 @@ const int THREAD_NUM = 2;
 
 void executeMysql(const std::string sql) {
     http::MysqlUtil mysqlUtil_;
-    mysqlUtil_.executeUpdate(sql);
+    if (!sql.empty() && sql.front() == '{') {
+        auto message = json::parse(sql);
+        if (message.at("type") != "chat_message_v2") throw std::runtime_error("Unknown queue message type");
+        int uid = message.at("userId").get<int>();
+        auto sid = message.at("sessionId").get<std::string>();
+        mysqlUtil_.executeUpdate(
+            "INSERT INTO chat_message (id,username,session_id,is_user,content,ts) SELECT ?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM chat_sessions WHERE user_id=? AND session_id=? AND deleted=1)",
+            uid, message.at("username").get<std::string>(), sid, message.at("isUser").get<bool>(),
+            message.at("content").get<std::string>(), message.at("timestamp").get<long long>(), uid, sid);
+    } else {
+        // Drain SQL jobs published by the previous version during upgrades.
+        mysqlUtil_.executeUpdate(sql);
+    }
 }
 
 

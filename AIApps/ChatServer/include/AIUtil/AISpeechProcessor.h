@@ -10,7 +10,7 @@
 #include <mutex>                                    // 引入 std::mutex 互斥锁（保护 Token 缓存）
 
 
-#include "../../../../HttpServer/include/utils/JsonUtil.h"   // 引入 JsonUtil 工具（json 类型定义）
+#include "utils/JsonUtil.h"   // 引入 JsonUtil 工具（json 类型定义）
 #include"base64.h"                                  // 引入 base64 编解码工具（音频数据编码传输）
 
 

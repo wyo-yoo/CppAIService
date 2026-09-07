@@ -1,0 +1,6 @@
+/build-chat/
+/build-test/
+/tests/node_modules/
+/tests/test-results/
+/tests/*.png
+__pycache__/

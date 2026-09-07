@@ -6,7 +6,7 @@
 #include <iostream>
 #include <ctime>
 #include <curl/curl.h>
-#include "../../../../HttpServer/include/utils/JsonUtil.h"
+#include "utils/JsonUtil.h"
 
 class AIToolRegistry {
 public:

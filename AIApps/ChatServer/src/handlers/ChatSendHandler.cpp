@@ -47,11 +47,7 @@ void ChatSendHandler::handle(const http::HttpRequest& req, http::HttpResponse* r
             auto& userSessions = server_->chatInformation[userId];
 
             if (userSessions.find(sessionId) == userSessions.end()) {
-
-                userSessions.emplace( 
-                    sessionId,
-                    std::make_shared<AIHelper>()
-                );
+                throw std::runtime_error("Conversation does not exist");
             }
             AIHelperPtr= userSessions[sessionId];
         }
@@ -84,7 +80,6 @@ void ChatSendHandler::handle(const http::HttpRequest& req, http::HttpResponse* r
         resp->setBody(failureBody);
     }
 }
-
 
 
 

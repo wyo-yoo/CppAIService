@@ -12,15 +12,18 @@
 #include <vector>
 
 
-#include "../../../HttpServer/include/http/HttpServer.h"
-#include "../../../HttpServer/include/utils/MysqlUtil.h"
-#include "../../../HttpServer/include/utils/FileUtil.h"
-#include "../../../HttpServer/include/utils/JsonUtil.h"
+#include "http/HttpServer.h"
+#include "utils/MysqlUtil.h"
+#include "utils/FileUtil.h"
+#include "utils/JsonUtil.h"
 #include"AIUtil/AISpeechProcessor.h"
 #include"AIUtil/AIHelper.h"
-#include"AIUtil/ImageRecognizer.h"
+#if CHAT_ENABLE_IMAGES
+#include "AIUtil/ImageRecognizer.h"
+#endif
 #include"AIUtil/base64.h"
 #include"AIUtil/MQManager.h"
+#include "AIUtil/ChatTaskPool.h"
 
 
 class ChatLoginHandler;
@@ -49,6 +52,7 @@ public:
 	void setThreadNum(int numThreads);
 	void start();
 	void initChatMessage();
+    ~ChatServer();
 	// 发送异步 handler 的延迟响应（耗时接口的工作线程完成后调用，如语音合成）
 	void sendDeferredResponse(const http::HttpResponse& resp)
 	{
@@ -74,6 +78,13 @@ private:
 	void initialize();
 	void initializeSession();
 	void initializeRouter();
+    void initializeChatFeatures();
+    void handleChatStream(const http::HttpRequest&, http::HttpResponse*);
+    void handleChatCancel(const http::HttpRequest&, http::HttpResponse*);
+    void handleSessionRename(const http::HttpRequest&, http::HttpResponse*);
+    void handleSessionDelete(const http::HttpRequest&, http::HttpResponse*);
+    int authenticatedUser(const http::HttpRequest&, http::HttpResponse*, std::string* name = nullptr);
+    void ensureSessionRecord(int userId, const std::string& id, const std::string& title);
 	void initializeMiddleware();
 	
 
@@ -106,11 +117,22 @@ private:
 	std::unordered_map<int, std::unordered_map<std::string,std::shared_ptr<AIHelper> > > chatInformation;
 	std::mutex	mutexForChatInformation;
 
+#if CHAT_ENABLE_IMAGES
 	std::unordered_map<int, std::shared_ptr<ImageRecognizer> > ImageRecognizerMap;
+#endif
 	std::mutex	mutexForImageRecognizerMap;
 
 	std::unordered_map<int,std::vector<std::string> > sessionsIdsMap;
 	std::mutex mutexForSessionsId;
 
-};
+    struct ChatJob {
+        int userId;
+        std::string sessionId, requestId;
+        std::atomic<bool> cancelled{false};
+    };
+    std::unordered_map<int, std::unordered_map<std::string, std::string>> sessionNames_;
+    std::mutex chatJobsMutex_;
+    std::unordered_map<std::string, std::shared_ptr<ChatJob>> chatJobs_;
+    ChatTaskPool chatWorkers_{4, 32};
 
+};

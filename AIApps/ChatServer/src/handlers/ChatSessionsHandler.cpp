@@ -38,10 +38,12 @@ void ChatSessionsHandler::handle(const http::HttpRequest& req, http::HttpRespons
 
 
         json sessionArray = json::array();
+        std::lock_guard<std::mutex> metadataLock(server_->mutexForChatInformation);
         for (auto sid : sessions) {
             json s;
             s["sessionId"] = sid;
-            s["name"] = "Ự " + sid;
+            auto& names = server_->sessionNames_[userId];
+            s["name"] = names.count(sid) ? names.at(sid) : "会话 " + sid;
             sessionArray.push_back(s);
         }
         successResp["sessions"] = sessionArray;
@@ -69,7 +71,6 @@ void ChatSessionsHandler::handle(const http::HttpRequest& req, http::HttpRespons
         resp->setBody(failureBody);
     }
 }
-
 
 
 

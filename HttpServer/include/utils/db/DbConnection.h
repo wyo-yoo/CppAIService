@@ -2,6 +2,7 @@
 #include <memory>
 #include <string>
 #include <mutex>
+#include <type_traits>
 #include <cppconn/connection.h>
 #include <cppconn/prepared_statement.h>
 #include <cppconn/resultset.h>
@@ -33,17 +34,22 @@ public:
     void cleanup();
 
     template<typename... Args>
-    sql::ResultSet* executeQuery(const std::string& sql, Args&&... args)
+    std::shared_ptr<sql::ResultSet> executeQuery(const std::string& sql, Args&&... args)
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        struct QueryOwner {
+            explicit QueryOwner(std::mutex& mutex) : lock(mutex) {}
+            std::unique_lock<std::mutex> lock;
+            std::unique_ptr<sql::PreparedStatement> statement;
+            std::unique_ptr<sql::ResultSet> result;
+        };
+        auto owner = std::make_shared<QueryOwner>(mutex_);
         try 
         {
             // 直接创建新的预处理语句，不使用缓存
-            std::unique_ptr<sql::PreparedStatement> stmt(
-                conn_->prepareStatement(sql)
-            );
-            bindParams(stmt.get(), 1, std::forward<Args>(args)...);
-            return stmt->executeQuery();
+            owner->statement.reset(conn_->prepareStatement(sql));
+            bindParams(owner->statement.get(), 1, std::forward<Args>(args)...);
+            owner->result.reset(owner->statement->executeQuery());
+            return std::shared_ptr<sql::ResultSet>(owner, owner->result.get());
         } 
         catch (const sql::SQLException& e) 
         {
@@ -82,7 +88,8 @@ private:
     void bindParams(sql::PreparedStatement* stmt, int index, 
                    T&& value, Args&&... args) 
     {
-        stmt->setString(index, std::to_string(std::forward<T>(value)));
+        if constexpr (std::is_convertible_v<T, std::string>) stmt->setString(index, std::string(std::forward<T>(value)));
+        else stmt->setString(index, std::to_string(std::forward<T>(value)));
         bindParams(stmt, index + 1, std::forward<Args>(args)...);
     }
     

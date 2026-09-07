@@ -15,9 +15,9 @@
 #include"../include/handlers/ChatSpeechHandler.h"
 
 #include "../include/ChatServer.h"
-#include "../../../HttpServer/include/http/HttpRequest.h"
-#include "../../../HttpServer/include/http/HttpResponse.h"
-#include "../../../HttpServer/include/http/HttpServer.h"
+#include "http/HttpRequest.h"
+#include "http/HttpResponse.h"
+#include "http/HttpServer.h"
 
 
 
@@ -27,7 +27,7 @@ using namespace http;
 ChatServer::ChatServer(int port,
     const std::string& name,
     muduo::net::TcpServer::Option option)
-    : httpServer_(port, name, option)
+    : httpServer_(port, name, false, option)
 {
     initialize();
 }
@@ -41,6 +41,7 @@ void ChatServer::initialize() {
     initializeMiddleware();
 
     initializeRouter();
+    initializeChatFeatures();
 }
 
 void ChatServer::initChatMessage() {
@@ -53,9 +54,18 @@ void ChatServer::initChatMessage() {
 void ChatServer::readDataFromMySQL() {
 
 
-    std::string sql = "SELECT id, username,session_id, is_user, content, ts FROM chat_message ORDER BY ts ASC, id ASC";
+    auto metadata = mysqlUtil_.executeQuery("SELECT user_id, session_id, title FROM chat_sessions WHERE deleted = 0");
+    while (metadata->next()) {
+        int uid = metadata->getInt("user_id");
+        std::string sid = metadata->getString("session_id");
+        sessionNames_[uid][sid] = metadata->getString("title");
+        chatInformation[uid][sid] = std::make_shared<AIHelper>();
+        sessionsIdsMap[uid].push_back(sid);
+    }
+    metadata.reset();
+    std::string sql = "SELECT m.id, m.username, m.session_id, m.is_user, m.content, m.ts FROM chat_message m LEFT JOIN chat_sessions s ON s.user_id=m.id AND s.session_id=CAST(m.session_id AS CHAR) WHERE s.deleted IS NULL OR s.deleted=0 ORDER BY m.ts ASC, m.is_user DESC";
 
-    sql::ResultSet* res;
+    std::shared_ptr<sql::ResultSet> res;
     try {
         res = mysqlUtil_.executeQuery(sql);
     }
@@ -100,6 +110,15 @@ void ChatServer::readDataFromMySQL() {
     }
 
     std::cout << "readDataFromMySQL finished" << std::endl;
+    res.reset();
+    for (const auto& user : chatInformation) {
+        for (const auto& conversation : user.second) {
+            if (!sessionNames_[user.first].count(conversation.first)) {
+                sessionNames_[user.first][conversation.first] = "会话 " + conversation.first;
+                ensureSessionRecord(user.first, conversation.first, sessionNames_[user.first][conversation.first]);
+            }
+        }
+    }
 }
 
 

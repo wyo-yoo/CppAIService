@@ -41,11 +41,11 @@ void ChatHistoryHandler::handle(const http::HttpRequest& req, http::HttpResponse
             auto& userSessions = server_->chatInformation[userId];
 
             if (userSessions.find(sessionId) == userSessions.end()) {
-
-                userSessions.emplace( 
-                    sessionId,
-                    std::make_shared<AIHelper>()
-                );
+                resp->setStatusLine(req.getVersion(), http::HttpResponse::k404NotFound, "Not Found");
+                resp->setContentType("application/json");
+                std::string error = R"({"success":false,"message":"会话不存在或已删除"})";
+                resp->setBody(error); resp->setContentLength(error.size());
+                return;
             }
             AIHelperPtr= userSessions[sessionId];
             messages= AIHelperPtr->GetMessages();
@@ -86,7 +86,6 @@ void ChatHistoryHandler::handle(const http::HttpRequest& req, http::HttpResponse
         resp->setBody(failureBody);
     }
 }
-
 
 
 

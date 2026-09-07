@@ -1,7 +1,7 @@
 #pragma once
-#include "../../../../HttpServer/include/router/RouterHandler.h"
+#include "router/RouterHandler.h"
 #include "../ChatServer.h"
-#include "../../../HttpServer/include/utils/JsonUtil.h"
+#include "utils/JsonUtil.h"
 
 class ChatLogoutHandler : public http::router::RouterHandler
 {

@@ -3,6 +3,14 @@
 
 StrategyFactory& StrategyFactory::instance() {
     static StrategyFactory factory;
+    static const bool registered = [&] {
+        factory.registerStrategy("1", [] { return std::make_shared<AliyunStrategy>(); });
+        factory.registerStrategy("2", [] { return std::make_shared<DouBaoStrategy>(); });
+        factory.registerStrategy("3", [] { return std::make_shared<AliyunRAGStrategy>(); });
+        factory.registerStrategy("4", [] { return std::make_shared<AliyunMcpStrategy>(); });
+        return true;
+    }();
+    (void)registered;
     return factory;
 }
 
