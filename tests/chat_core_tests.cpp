@@ -37,6 +37,37 @@ int main(int argc, char** argv) {
             std::cout << json{{"result", result}, {"count", count}}.dump() << std::endl;
             return 0;
         }
+        // DeepSeek must work with its own credentials, without any other provider key.
+        unsetenv("DASHSCOPE_API_KEY");
+        unsetenv("DOUBAO_API_KEY");
+        unsetenv("DEEPSEEK_API_KEY");
+        bool missingKeyRejected = false;
+        try { DeepSeekStrategy strategy; } catch (const std::runtime_error&) { missingKeyRejected = true; }
+        check(missingKeyRejected, "DeepSeek rejects missing credentials");
+        setenv("DEEPSEEK_API_KEY", "", 1);
+        bool emptyKeyRejected = false;
+        try { DeepSeekStrategy strategy; } catch (const std::runtime_error&) { emptyKeyRejected = true; }
+        check(emptyKeyRejected, "DeepSeek rejects empty credentials");
+        setenv("DEEPSEEK_API_KEY", "test-only-deepseek", 1);
+        unsetenv("DEEPSEEK_MODEL");
+        auto deepseek = StrategyFactory::instance().create("5");
+        check(deepseek->getApiUrl() == "https://api.deepseek.com/chat/completions", "DeepSeek endpoint");
+        check(deepseek->getModel() == "deepseek-flash", "DeepSeek default model");
+        AIHelper::Messages history{{"first question", 1}, {"first answer", 2}};
+        const auto answer = deepseek->chat(history, "next question", [&](const json& payload, bool finalAnswer) {
+            check(finalAnswer && payload.at("thinking").at("type") == "disabled", "DeepSeek streaming answer request");
+            const auto& messages = payload.at("messages");
+            check(messages.size() == 3 && messages[0]["role"] == "user" && messages[1]["role"] == "assistant" &&
+                  messages[2]["role"] == "user" && messages[2]["content"] == "next question", "DeepSeek multi-turn payload");
+            return json{{"choices", json::array({{{"message", {{"content", "next answer"}}}}})}};
+        });
+        check(answer == "next answer" && history.size() == 4, "DeepSeek response and history");
+        setenv("DEEPSEEK_MODEL", "test-custom-model", 1);
+        check(DeepSeekStrategy().getModel() == "test-custom-model", "DeepSeek model override");
+        bool invalidResponseRejected = false;
+        try { deepseek->parseResponse(json{{"choices", json::array()}}); } catch (const std::exception&) { invalidResponseRejected = true; }
+        check(invalidResponseRejected, "DeepSeek rejects malformed responses");
+        unsetenv("DEEPSEEK_MODEL");
         std::vector<std::string> events;
         SseDecoder decoder([&](const std::string& value) { events.push_back(value); });
         std::string wire = ": ping\r\nevent: delta\r\ndata: 中文\r\ndata: second\r\n\r\ndata: [DONE]\n\n";

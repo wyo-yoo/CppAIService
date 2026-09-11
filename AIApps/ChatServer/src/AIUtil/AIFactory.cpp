@@ -8,6 +8,7 @@ StrategyFactory& StrategyFactory::instance() {
         factory.registerStrategy("2", [] { return std::make_shared<DouBaoStrategy>(); });
         factory.registerStrategy("3", [] { return std::make_shared<AliyunRAGStrategy>(); });
         factory.registerStrategy("4", [] { return std::make_shared<AliyunMcpStrategy>(); });
+        factory.registerStrategy("5", [] { return std::make_shared<DeepSeekStrategy>(); });
         return true;
     }();
     (void)registered;

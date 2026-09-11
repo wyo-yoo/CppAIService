@@ -48,7 +48,7 @@ def main():
     if not env_file.exists():
         content = '# Local configuration; excluded from Git.\n'
         content += ''.join(f'{key}={shlex.quote(value)}\n' for key, value in config.items())
-        content += '\nDASHSCOPE_API_KEY=\nDOUBAO_API_KEY=\nKnowledge_Base_ID=\nBAIDU_CLIENT_ID=\nBAIDU_CLIENT_SECRET=\n'
+        content += '\nDEEPSEEK_API_KEY=\nDEEPSEEK_MODEL=deepseek-flash\nDASHSCOPE_API_KEY=\nDOUBAO_API_KEY=\nKnowledge_Base_ID=\nBAIDU_CLIENT_ID=\nBAIDU_CLIENT_SECRET=\n'
         descriptor = os.open(env_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, 'w') as output:
             output.write(content)

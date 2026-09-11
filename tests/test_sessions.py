@@ -11,6 +11,8 @@ class Model(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         question=body['messages'][-1]['content']
+        if question=='你好 DeepSeek':
+            assert body['model']=='deepseek-flash' and body['thinking']['type']=='disabled'
         try:
             if question=='fail': self.send_response(429);self.end_headers();return
             self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()
@@ -38,9 +40,11 @@ def event(response):
             raise RuntimeError('Unexpected stream EOF')
         if line.startswith('event:'):name=line[6:].strip()
         elif line.startswith('data:'):data.append(line[5:].lstrip())
-def stream(cookie,request_id,sid='',question='你好'):
+def stream(cookie,request_id,sid='',question='你好',model='1'):
     c=http.client.HTTPConnection('127.0.0.1',api_port,timeout=4)
-    c.request('POST','/chat/stream',json.dumps(dict(question=question,requestId=request_id,sessionId=sid,modelType='1')),
+    payload=dict(question=question,requestId=request_id,sessionId=sid)
+    if model is not None: payload['modelType']=model
+    c.request('POST','/chat/stream',json.dumps(payload),
               {'Content-Type':'application/json','Cookie':cookie})
     r=c.getresponse();assert r.status==200,(r.status,r.read());return c,r
 def drain(response):
@@ -106,7 +110,14 @@ with tempfile.TemporaryDirectory(prefix='cpp-chat-mysql-') as temp:
         _,_,alice=api('/login',{'username':'alice','password':'test'})
         assert api('/chat/sessions',cookie=alice)[1]['sessions']==[]
         assert api('/chat/stream',{'question':'revive','requestId':'bad','sessionId':sid},alice)[0]==404
-        print('sessions: auth/isolation, streaming, stop/continue, failure rollback, rename/history restart and durable deletion passed')
+        # With modelType omitted, the production route must select DeepSeek.
+        c,r=stream(alice,'deepseek-default',question='你好 DeepSeek',model=None)
+        events=drain(r);c.close()
+        assert events[0][0]=='meta' and events[-1][0]=='done',events
+        assert events[-1][1]['text']=='第一段。第二段。最后一段。',events
+        deepseek_sid=events[0][1]['sessionId']
+        assert len(api('/chat/history',{'sessionId':deepseek_sid},alice)[1]['history'])==2
+        print('sessions: auth/isolation, streaming, stop/continue, failure rollback, restart, deletion and default DeepSeek passed')
     finally:
         if app:app.terminate();app.wait(timeout=3)
         db.terminate();db.wait(timeout=30);logfile.close();model.shutdown()

@@ -63,11 +63,11 @@ void ChatServer::handleChatStream(const http::HttpRequest& req, http::HttpRespon
         int userId = authenticatedUser(req, resp, &username); if (userId < 0) return;
         auto body = json::parse(req.getBody());
         auto question = trim(body.at("question").get<std::string>());
-        auto model = body.value("modelType", std::string("1"));
+        auto model = body.value("modelType", std::string("5"));
         auto sid = body.value("sessionId", std::string());
         auto requestId = body.at("requestId").get<std::string>();
         if (question.empty() || question.size() > 32768) throw std::runtime_error("请输入问题，长度不超过 32KB");
-        if (model != "1" && model != "2" && model != "3" && model != "4") throw std::runtime_error("不支持的模型");
+        if (model != "1" && model != "2" && model != "3" && model != "4" && model != "5") throw std::runtime_error("不支持的模型");
         if (!std::regex_match(requestId, std::regex("[A-Za-z0-9_-]{1,64}"))) throw std::runtime_error("无效的请求编号");
         if (!sid.empty() && !validId(sid)) throw std::runtime_error("无效的会话编号");
         std::unique_lock<std::mutex> jobsLock(chatJobsMutex_);

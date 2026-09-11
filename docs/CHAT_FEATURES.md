@@ -4,7 +4,7 @@
 
 ## 行为
 
-- 阿里百炼、豆包的最终回答使用兼容接口流式协议；百炼 RAG 使用 DashScope SSE 和 `incremental_output`。工具助手的判断阶段使用普通请求，工具执行后的回答支持流式输出；判断结果不需要工具时一次性展示。
+- DeepSeek、阿里百炼、豆包的最终回答使用兼容接口流式协议；百炼 RAG 使用 DashScope SSE 和 `incremental_output`。工具助手的判断阶段使用普通请求，工具执行后的回答支持流式输出；判断结果不需要工具时一次性展示。
 - 停止会取消上游 HTTP 请求，并保存已经生成的文字。取消检查间隔约 100ms；已有天气工具本身最多等待 5 秒。断开浏览器连接也会结束模型请求。
 - 单个用户同时允许一个流式生成任务；后台默认 4 个工作线程、最多 32 个排队任务。读取历史不会等待模型生成。连接超时 10 秒、请求总超时 180 秒。
 - 新会话以首条问题生成标题。重命名和删除写入 MySQL。删除采用 `chat_sessions.deleted` 标记，界面与历史接口不再返回该会话；原始消息行保留，暂未实现物理清理或恢复入口。新增格式的迟到队列消息会跳过已删除会话。
@@ -30,6 +30,7 @@ ctest --test-dir build-chat --output-on-failure
 
 ```bash
 # 先在启动服务的环境中配置实际使用的模型凭据和原有数据库/MQ服务。
+# DeepSeek（默认）：DEEPSEEK_API_KEY，可选 DEEPSEEK_MODEL。
 # 百炼：DASHSCOPE_API_KEY；豆包：DOUBAO_API_KEY；RAG 另需 Knowledge_Base_ID。
 cd /home/wy/project/CppAIService
 bash scripts/run.sh 8080

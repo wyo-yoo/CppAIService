@@ -51,6 +51,22 @@ protected:
     }
 };
 
+class DeepSeekStrategy : public AIStrategy {
+public:
+    DeepSeekStrategy();
+    std::string getApiUrl() const override;
+    std::string getApiKey() const override;
+    std::string getModel() const override;
+    json buildRequest(const std::vector<std::pair<std::string, long long>>& messages) const override;
+    std::string parseResponse(const json& response) const override;
+    std::string chat(std::vector<std::pair<std::string, long long>>& messages,
+                     const std::string& userQuestion,
+                     std::function<json(const json&, bool)> httpExecutor) override;
+private:
+    std::string apiKey_;
+    std::string model_;
+};
+
 class AliyunStrategy : public AIStrategy {
 
 public:

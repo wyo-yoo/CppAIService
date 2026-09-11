@@ -19,6 +19,13 @@ public:
     std::string getApiUrl() const override { return url_; }
 private: std::string url_;
 };
+class TestDeepSeekModel : public DeepSeekStrategy {
+public:
+    explicit TestDeepSeekModel(std::string url) : url_(std::move(url)) {}
+    std::string getApiUrl() const override { return url_; }
+private:
+    std::string url_;
+};
 int main(int argc, char** argv) {
     if (argc != 4) return 2;
     muduo::Logger::setLogLevel(muduo::Logger::WARN);
@@ -31,8 +38,11 @@ int main(int argc, char** argv) {
     statement->execute("CREATE TABLE IF NOT EXISTS chat_message (id INT,username VARCHAR(255),session_id VARCHAR(64),is_user TINYINT,content MEDIUMTEXT,ts BIGINT)");
     http::MysqlUtil::init(dbUrl,"root","","chat_feature_test",5);
     setenv("DASHSCOPE_API_KEY","test-only",1);
+    setenv("DEEPSEEK_API_KEY","test-only-deepseek",1);
+    setenv("DEEPSEEK_MODEL","deepseek-flash",1);
     const std::string endpoint=argv[3];
     StrategyFactory::instance().registerStrategy("1",[endpoint] { return std::make_shared<TestModel>(endpoint); });
+    StrategyFactory::instance().registerStrategy("5",[endpoint] { return std::make_shared<TestDeepSeekModel>(endpoint); });
     ChatServer server(std::stoi(argv[1]),"session-test");
     server.initChatMessage();
     server.setThreadNum(2);

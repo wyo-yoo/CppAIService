@@ -46,7 +46,7 @@ CppAIService 是一个基于 C++17 的 AI 应用服务项目，在基于 Muduo �
 | 功能 | 当前实现 |
 | --- | --- |
 | 用户管理 | 注册、登录、退出，使用内存 Session 和 Cookie 维护登录状态 |
-| 多模型对话 | `AIStrategy` + `StrategyFactory` 适配阿里百炼、百炼 RAG 和工具助手 |
+| 多模型对话 | `AIStrategy` + `StrategyFactory` 适配 DeepSeek、阿里百炼、豆包、百炼 RAG 和工具助手 |
 | 流式输出 | 通过 SSE 增量展示模型回复；后台工作线程执行模型请求 |
 | 停止生成 | 按请求 ID 取消生成，保留已生成文字；浏览器断开连接也会触发取消 |
 | 多会话管理 | 按用户和会话 ID 隔离上下文，支持自动命名、重命名、删除、搜索和 Markdown 导出 |
@@ -184,10 +184,13 @@ RabbitMQ 当前默认连接本机 `localhost:5672`，使用 `guest` 账户和 `/
 
 | 功能 | 配置项 |
 | --- | --- |
+| DeepSeek（默认） | `DEEPSEEK_API_KEY`；可选 `DEEPSEEK_MODEL` |
 | 阿里百炼／工具助手 | `DASHSCOPE_API_KEY` |
 | 豆包 | `DOUBAO_API_KEY` |
 | 百炼 RAG | `DASHSCOPE_API_KEY` 和 `Knowledge_Base_ID` |
 | 百度语音合成 | `BAIDU_CLIENT_ID` 和 `BAIDU_CLIENT_SECRET` |
+
+聊天页默认选择 DeepSeek（`modelType=5`），接入官方 `/chat/completions` 接口并支持流式输出、停止生成和多轮历史。将密钥填入本机 `.env` 的 `DEEPSEEK_API_KEY` 后，使用 `bash scripts/run.sh 8080` 启动。模型名默认是 `deepseek-flash`，也可通过 `DEEPSEEK_MODEL` 切换为账号可用的模型。密钥不能填写到源码或 `.env.example` 中。
 
 例如，只体验百炼聊天时，可以通过交互输入设置密钥：
 
