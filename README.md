@@ -5,7 +5,7 @@
 ## 快速启动（Ubuntu 24.04）
 
 ```bash
-git clone https://github.com/wy192721/CppAIService.git
+git clone https://github.com/wyo-yoo/CppAIService.git
 cd CppAIService
 bash scripts/install-deps.sh
 python3 scripts/setup_database.py
