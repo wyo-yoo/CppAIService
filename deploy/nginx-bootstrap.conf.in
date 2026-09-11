@@ -1,0 +1,7 @@
+# Certificate provisioning only: do not serve the login page over HTTP.
+server {
+    listen 80;
+    server_name @DOMAIN@;
+    location ^~ /.well-known/acme-challenge/ { root /var/www/letsencrypt; }
+    location / { return 503; }
+}

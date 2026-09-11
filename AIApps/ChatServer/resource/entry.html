@@ -141,16 +141,16 @@
         <form id="login-form">
             <div class="form-group">
                 <label for="login-username">用户名</label>
-                <input type="text" id="login-username" placeholder="请输入用户名" required>
+                <input type="text" id="login-username" autocomplete="username" maxlength="255" placeholder="请输入用户名" required>
             </div>
             <div class="form-group">
                 <label for="login-password">密码</label>
-                <input type="password" id="login-password" placeholder="请输入密码" required>
+                <input type="password" id="login-password" autocomplete="current-password" placeholder="请输入密码" required>
             </div>
             <button type="submit" class="btn">登录</button>
         </form>
         <div class="switch">
-            没有账号？<a onclick="showRegister()">去注册账号</a>
+            没有账号？<a id="register-link" onclick="showRegister()">去注册账号</a>
         </div>
     </div>
 
@@ -160,11 +160,11 @@
         <form id="register-form">
             <div class="form-group">
                 <label for="register-username">用户名</label>
-                <input type="text" id="register-username" placeholder="请输入用户名" required>
+                <input type="text" id="register-username" autocomplete="username" pattern="[A-Za-z0-9_]{3,32}" minlength="3" maxlength="32" placeholder="3–32 位字母、数字或下划线" required>
             </div>
             <div class="form-group">
                 <label for="register-password">密码</label>
-                <input type="password" id="register-password" placeholder="请输入密码" required>
+                <input type="password" id="register-password" autocomplete="new-password" minlength="15" maxlength="128" placeholder="15–128 个字符，建议使用长句" required>
             </div>
             <button type="submit" class="btn">注册</button>
         </form>
@@ -179,57 +179,45 @@ function showAlert(message){
     const alertBox = document.getElementById('success-alert');
     alertBox.textContent = message;
     alertBox.style.display = 'block';
-    setTimeout(()=>{alertBox.style.display='none';},1000);
+    setTimeout(()=>{alertBox.style.display='none';},5000);
 }
 function showRegister(){ document.getElementById('login-container').style.display='none'; document.getElementById('register-container').style.display='block'; }
 function showLogin(){ document.getElementById('register-container').style.display='none'; document.getElementById('login-container').style.display='block'; }
 
-// 登录
-document.getElementById('login-form').addEventListener('submit', function(e){
-    e.preventDefault();
-    const username=document.getElementById('login-username').value;
-    const password=document.getElementById('login-password').value;
-
-    fetch('/login',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({username,password})
-    }).then(response=>{
-        if(response.status===403){ showAlert('账号已在其他地方登录！'); throw new Error('已在其他地方登录'); }
-        const contentType = response.headers.get('content-type');
-        if(response.status===200){
-            if(contentType && contentType.includes('application/json')) return response.json();
-            else throw new Error('返回格式错误');
-        }else if(response.status===401){ showAlert('账号或密码错误！'); throw new Error('认证失败'); }
-        else throw new Error('请求失败');
-    }).then(data=>{
-        if(data && data.userId){ sessionStorage.setItem('userId', data.userId); showAlert('登录成功！'); window.location.href='/menu'; }
-        else throw new Error('无效的响应数据');
-    }).catch(error=>{
-        console.error('Error:',error);
-        if(!error.message.includes('已在其他地方登录')&&!error.message.includes('认证失败')) showAlert('操作失败，请重试');
-    });
-});
-
-// 注册
-document.getElementById('register-form').addEventListener('submit', function(e){
-    e.preventDefault();
-    const username=document.getElementById('register-username').value;
-    const password=document.getElementById('register-password').value;
-
-    fetch('/register',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({username,password})
-    }).then(response=>{
-        if(response.status===200){
-            showAlert('注册成功！');
-            document.getElementById('login-username').value=username;
-            document.getElementById('login-password').value=password;
-            setTimeout(showLogin,1000);
-        }else if(response.status===409){ alert('用户名已被注册，请重新输入！'); }
-    }).catch(error=>console.error('注册错误:',error));
-});
+async function submitAccount(form, endpoint) {
+    const register = endpoint === '/register';
+    const prefix = register ? 'register' : 'login';
+    const username = document.getElementById(prefix+'-username').value.trim();
+    const password = document.getElementById(prefix+'-password').value;
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+        const response = await fetch(endpoint, {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({username,password})
+        });
+        const data = await response.json();
+        if (!response.ok || data.success === false) throw new Error(data.message || '操作失败，请稍后重试');
+        if (register) {
+            document.getElementById('login-username').value = username;
+            document.getElementById('login-password').value = '';
+            document.getElementById('register-password').value = '';
+            showLogin(); showAlert('注册成功，请使用新账号登录');
+        } else {
+            sessionStorage.setItem('userId', data.userId);
+            window.location.href='/chat';
+        }
+    } catch(error) { showAlert(error.message || '网络连接失败，请稍后重试'); }
+    finally { button.disabled = false; }
+}
+document.getElementById('login-form').addEventListener('submit', function(e) { e.preventDefault(); submitAccount(this,'/login'); });
+document.getElementById('register-form').addEventListener('submit', function(e) { e.preventDefault(); submitAccount(this,'/register'); });
+fetch('/api/config').then(r=>r.json()).then(config=>{
+    if (!config.registrationOpen) {
+        const link = document.getElementById('register-link');
+        link.textContent = '新用户注册暂时关闭'; link.removeAttribute('onclick');
+    }
+}).catch(()=>{});
 </script>
 </body>
 </html>

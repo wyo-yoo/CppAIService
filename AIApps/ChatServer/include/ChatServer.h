@@ -21,6 +21,7 @@
 #include"AIUtil/base64.h"
 #include"AIUtil/MQManager.h"
 #include "AIUtil/ChatTaskPool.h"
+#include "security/PublicAccess.h"
 
 
 class ChatLoginHandler;
@@ -72,7 +73,8 @@ private:
 	void initializeSession();
 	void initializeRouter();
     void initializeChatFeatures();
-    void handleChatStream(const http::HttpRequest&, http::HttpResponse*);
+    void handleChatStream(const http::HttpRequest&, http::HttpResponse*, bool streaming = true, bool newSession = false);
+    void handleAuthentication(const http::HttpRequest&, http::HttpResponse*, bool registration);
     void handleChatCancel(const http::HttpRequest&, http::HttpResponse*);
     void handleSessionRename(const http::HttpRequest&, http::HttpResponse*);
     void handleSessionDelete(const http::HttpRequest&, http::HttpResponse*);
@@ -100,8 +102,9 @@ private:
 
 	http::MysqlUtil		mysqlUtil_;
 
-	std::unordered_map<int, bool>	onlineUsers_;
-	std::mutex	mutexForOnlineUsers_;
+    std::shared_ptr<PublicAccess> access_ = std::make_shared<PublicAccess>();
+    ChatTaskPool authWorkers_{2,8};
+    std::string dummyPasswordHash_;
 
 	
 
@@ -117,6 +120,7 @@ private:
         int userId;
         std::string sessionId, requestId;
         std::atomic<bool> cancelled{false};
+        std::shared_ptr<PublicAccess::Permit> permit;
     };
     std::unordered_map<int, std::unordered_map<std::string, std::string>> sessionNames_;
     std::mutex chatJobsMutex_;

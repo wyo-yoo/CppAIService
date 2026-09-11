@@ -1,5 +1,6 @@
 #include "../include/session/SessionStorage.h"
 #include <iostream>
+#include <stdexcept>
 
 namespace http
 {
@@ -10,7 +11,10 @@ namespace session
 void MemorySessionStorage::save(std::shared_ptr<Session> session)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    // 创建会话副本并存储
+    if (session->getId().empty()) return;
+    for (auto it = sessions_.begin(); it != sessions_.end();)
+        if (it->second->isExpired()) it = sessions_.erase(it); else ++it;
+    if (sessions_.size() >= 10000 && !sessions_.count(session->getId())) throw std::runtime_error("Session capacity reached");
     sessions_[session->getId()] = session;
 }
 

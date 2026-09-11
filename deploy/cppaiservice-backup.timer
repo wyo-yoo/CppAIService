@@ -1,0 +1,11 @@
+[Unit]
+Description=Run CppAIService database backup every day
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=10min
+Persistent=true
+Unit=cppaiservice-backup.service
+
+[Install]
+WantedBy=timers.target

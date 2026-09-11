@@ -138,6 +138,7 @@ std::string HttpRequest::getHeader(const std::string &field) const
 
 void HttpRequest::swap(HttpRequest &that)
 {
+    std::swap(peerIp_, that.peerIp_);
     std::swap(method_, that.method_);
     std::swap(path_, that.path_);
     std::swap(pathParameters_, that.pathParameters_);

@@ -579,6 +579,7 @@
           <div class="conversation" id="conversation"></div>
         </div>
         <div class="composer-wrap">
+          <div id="usage-status" class="hint" role="status" style="margin-bottom:8px">正在读取今日额度…</div>
           <div class="notice" aria-live="polite">
             <span id="generation-status"></span
             ><button id="return-generating" hidden>返回生成中的会话 ↗</button>
@@ -589,7 +590,7 @@
               placeholder="输入你的问题…"
               aria-label="输入问题"
               rows="2"
-              maxlength="16000"
+              maxlength="8192"
             ></textarea>
             <div class="compose-bottom">
               <span class="hint">Enter 发送 · Shift + Enter 换行</span>
@@ -624,6 +625,7 @@
         "use strict";
         const $ = (id) => document.getElementById(id);
         const sessions = new Map();
+        let siteReady = false, speechEnabled = false;
         let currentId = null,
           active = null,
           switchVersion = 0,
@@ -651,10 +653,29 @@
                   body: JSON.stringify(data),
                 },
           );
+          if (response.status === 401) { window.location.href = "/entry"; throw new Error("登录已过期，请重新登录"); }
           const value = await response.json();
           if (!response.ok || value.success === false)
             throw new Error(value.message || "操作失败，请稍后重试");
           return value;
+        }
+        async function refreshUsage() {
+          try {
+            const usage = await api("/chat/usage");
+            $("usage-status").textContent = `今日可用 ${usage.remaining} 次 · 每人每天 ${usage.dailyLimit} 次 · UTC 零点重置`;
+          } catch (error) { $("usage-status").textContent = "暂时无法读取今日额度"; }
+        }
+        async function loadSiteConfig() {
+          try {
+            const config = await api("/api/config");
+            for (const option of [...$("model-type").options]) {
+              if (!config.models.includes(option.value)) option.remove();
+            }
+            if (!$("model-type").options.length) throw new Error("网站暂未开放聊天模型");
+            speechEnabled = config.speechEnabled;
+            siteReady = true;
+            renderConversation();
+          } catch (error) { toast(error.message); }
         }
         function closeSidebar() {
           $("sidebar").classList.remove("open");
@@ -778,6 +799,7 @@
             content.append(label, body);
             if (message.role === "assistant") content.append(status);
             if (
+              speechEnabled &&
               message.role === "assistant" &&
               message.content &&
               message.status !== "generating"
@@ -798,7 +820,7 @@
           renderControls();
         }
         function renderControls() {
-          $("send-message").disabled = Boolean(active);
+          $("send-message").disabled = Boolean(active) || !siteReady;
           $("stop-generation").hidden = !active;
           $("stop-generation").disabled = Boolean(active?.stopRequested);
           $("stop-generation").textContent = active?.stopRequested
@@ -903,6 +925,7 @@
             toast(error.message);
           } finally {
             button.disabled = false;
+            refreshUsage();
           }
         }
         let renderPending = false;
@@ -963,10 +986,10 @@
         }
         $("chat-form").addEventListener("submit", async (event) => {
           event.preventDefault();
-          if (active) return;
+          if (active || !siteReady) return;
           const question = $("question").value.trim();
           if (!question) return;
-          if (new TextEncoder().encode(question).length > 32768) {
+          if (new TextEncoder().encode(question).length > 8192) {
             toast("问题过长，请缩短后发送");
             return;
           }
@@ -1021,7 +1044,8 @@
               signal: run.controller.signal,
             });
             if (!response.ok) {
-              const value = await response.json();
+              if (response.status === 401) { window.location.href = "/entry"; throw new Error("登录已过期，请重新登录"); }
+          const value = await response.json();
               throw new Error(value.message || "无法开始生成");
             }
             // meta 建立会话映射，status 更新提示，delta 追加回答，done/error 标记本次生成结束。
@@ -1061,6 +1085,7 @@
             answer.status = run.stopRequested ? "stopped" : "error";
             answer.error = error.message;
           } finally {
+            refreshUsage();
             clearTimeout(run.abortTimer);
             if (active === run) active = null;
             if (session.id.startsWith("pending:")) {
@@ -1142,6 +1167,8 @@
         $("sidebar-shade").onclick = closeSidebar;
         renderList();
         renderConversation();
+        loadSiteConfig();
+        refreshUsage();
         api("/chat/sessions")
           .then((data) => {
             for (const s of data.sessions) {

@@ -11,4 +11,6 @@ __pycache__/
 .env
 .env.*
 !.env.example
+/.deployment/
+/.backups/
 /.cache/

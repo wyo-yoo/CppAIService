@@ -37,6 +37,8 @@ const server = http.createServer(async (req, res) => {
     res.end(html);
     return;
   }
+  if (req.url === "/api/config") return reply({models:["5"],speechEnabled:false,registrationOpen:true});
+  if (req.url === "/chat/usage") return reply({dailyLimit:20,remaining:19,used:1});
   if (req.url === "/chat/sessions")
     return reply({
       sessions: [...sessions.values()].map(({ history, ...s }) => s),
@@ -120,6 +122,8 @@ const server = http.createServer(async (req, res) => {
     await page.route("https://cdn.jsdelivr.net/**", (route) => route.abort());
     await page.goto("http://127.0.0.1:" + server.address().port);
     await page.getByRole("button", { name: "已有会话", exact: true }).waitFor();
+    await page.getByText("今日可用 19 次", {exact:false}).waitFor();
+    assert.deepEqual(await page.locator("#model-type option").evaluateAll(options=>options.map(o=>o.value)),["5"]);
     // A first send must work without pressing New Chat.
     await page.getByLabel("输入问题").fill("帮我制定学习计划");
     await page.getByRole("button", { name: "发送 ↑", exact: true }).click();

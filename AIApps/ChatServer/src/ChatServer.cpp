@@ -16,6 +16,7 @@
 #include "http/HttpRequest.h"
 #include "http/HttpResponse.h"
 #include "http/HttpServer.h"
+#include "security/Password.h"
 
 
 
@@ -45,6 +46,8 @@ void ChatServer::initialize() {
         envOrDefault("CHAT_MYSQL_PASSWORD", ""),
         envOrDefault("CHAT_MYSQL_DATABASE", "ChatHttpServer"), 5);
 
+    access_->initializeDatabase();
+    dummyPasswordHash_ = Password::hash(Password::randomToken());
     initializeSession();
 
     initializeMiddleware();
@@ -143,6 +146,16 @@ void ChatServer::start() {
 
 
 void ChatServer::initializeRouter() {
+    httpServer_.Get("/api/config", [this](const auto& req, auto* resp) { accessReply(resp,req,200,access_->config()); });
+    httpServer_.Get("/healthz", [this](const auto& req, auto* resp) {
+        try { auto result = mysqlUtil_.executeQuery("SELECT 1"); accessReply(resp,req,200,{{"status","ok"}}); }
+        catch (...) { accessReply(resp,req,503,{{"status","unavailable"}}); }
+    });
+    httpServer_.Get("/chat/usage", [this](const auto& req, auto* resp) {
+        int uid = authenticatedUser(req,resp); if (uid < 0) return;
+        try { accessReply(resp,req,200,access_->usage(uid)); }
+        catch (...) { accessReply(resp,req,503,{{"message","暂时无法读取额度"}}); }
+    });
 
     httpServer_.Get("/", std::make_shared<ChatEntryHandler>(this));
     httpServer_.Get("/entry", std::make_shared<ChatEntryHandler>(this));
@@ -172,16 +185,14 @@ void ChatServer::initializeSession() {
 
     auto sessionStorage = std::make_unique<http::session::MemorySessionStorage>();
 
-    auto sessionManager = std::make_unique<http::session::SessionManager>(std::move(sessionStorage));
+    auto sessionManager = std::make_unique<http::session::SessionManager>(std::move(sessionStorage), access_->secureCookies());
 
     setSessionManager(std::move(sessionManager));
 }
 
 void ChatServer::initializeMiddleware() {
 
-    auto corsMiddleware = std::make_shared<http::middleware::CorsMiddleware>();
-
-    httpServer_.addMiddleware(corsMiddleware);
+    httpServer_.addMiddleware(access_);
 }
 
 

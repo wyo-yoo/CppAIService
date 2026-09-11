@@ -1,6 +1,7 @@
 #include "../../include/http/HttpServer.h"
 
 #include <any>
+#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <utility>
@@ -20,7 +21,7 @@ HttpServer::HttpServer(int port,
                        const std::string &name,
                        bool useSSL,
                        muduo::net::TcpServer::Option option)
-    : listenAddr_(port)
+    : listenAddr_(std::getenv("CHAT_BIND_ADDRESS") ? std::getenv("CHAT_BIND_ADDRESS") : "127.0.0.1", port)
     , server_(&mainLoop_, listenAddr_, name, option)
     , useSSL_(useSSL)
     , httpCallback_(std::bind(&HttpServer::handleRequest, this, std::placeholders::_1, std::placeholders::_2))
@@ -75,8 +76,13 @@ void HttpServer::onConnection(const muduo::net::TcpConnectionPtr& conn)
         }
         conn->setContext(HttpContext());
     }
-    else 
+    else
     {
+        {
+            std::lock_guard<std::mutex> lock(deferredMutex_);
+            for (auto it = deferredEntries_.begin(); it != deferredEntries_.end();)
+                if (it->second.conn == conn) it = deferredEntries_.erase(it); else ++it;
+        }
         {
             std::lock_guard<std::mutex> lock(streamsMutex_);
             auto it = streams_.find(conn->name());
@@ -141,8 +147,8 @@ void HttpServer::onMessage(const muduo::net::TcpConnectionPtr &conn,
         if (!context->parseRequest(buf, receiveTime)) // 解析一个http请求
         {
             // 如果解析http报文过程中出错
-            conn->send("HTTP/1.1 400 Bad Request\r\n\r\n");
-            conn->shutdown();
+            conn->send("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            conn->forceCloseWithDelay(0.1); return;
         }
         // 如果buf缓冲区中解析出一个完整的数据包才封装响应报文
         if (context->gotAll())
@@ -171,7 +177,9 @@ void HttpServer::onRequest(const muduo::net::TcpConnectionPtr &conn, const HttpR
     response.setDeferredId(nextDeferredId_.fetch_add(1));
 
     // 根据请求报文信息来封装响应报文对象
-    httpCallback_(req, &response); // 执行onHttpCallback函数
+    HttpRequest clientRequest = req;
+    clientRequest.setPeerIp(conn->peerAddress().toIp());
+    httpCallback_(clientRequest, &response); // 执行onHttpCallback函数
 
     // 流式响应先发响应头，再由业务回调持续写事件；这里不等待模型生成完整正文。
     if (response.streamHandler()) {
@@ -208,8 +216,12 @@ void HttpServer::onRequest(const muduo::net::TcpConnectionPtr &conn, const HttpR
     // 等工作线程完成后由 sendDeferredResponse 发送，此处直接返回不阻塞网络线程
     if (response.deferred())
     {
-        std::lock_guard<std::mutex> lock(deferredMutex_);
-        deferredEntries_[response.deferredId()] = DeferredEntry{conn, response};
+        {
+            std::lock_guard<std::mutex> lock(deferredMutex_);
+            deferredEntries_[response.deferredId()] = DeferredEntry{conn, response};
+        }
+        // Start only after the connection has been registered; fast jobs cannot lose their response.
+        if (response.deferredHandler()) response.deferredHandler()();
         return;
     }
 
@@ -284,8 +296,11 @@ void HttpServer::handleRequest(const HttpRequest &req, HttpResponse *resp)
     catch (const std::exception& e) 
     {
         // 错误处理
-        resp->setStatusCode(HttpResponse::k500InternalServerError);
-        resp->setBody(e.what());
+        LOG_ERROR << "Request handler failed";
+        resp->setStatusLine(req.getVersion(), HttpResponse::k500InternalServerError, "Internal Server Error");
+        resp->setContentType("application/json");
+        const std::string body = "{\"success\":false,\"message\":\"Service temporarily unavailable\"}";
+        resp->setBody(body); resp->setContentLength(body.size()); resp->setCloseConnection(true);
     }
 }
 

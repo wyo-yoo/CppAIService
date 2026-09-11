@@ -6,7 +6,7 @@
 
 - DeepSeek、阿里百炼、豆包的最终回答使用兼容接口流式协议；百炼 RAG 使用 DashScope SSE 和 `incremental_output`。工具助手的判断阶段使用普通请求，工具执行后的回答支持流式输出；判断结果不需要工具时一次性展示。
 - 停止会取消上游 HTTP 请求，并保存已经生成的文字。取消检查间隔约 100ms；已有天气工具本身最多等待 5 秒。断开浏览器连接也会结束模型请求。
-- 单个用户同时允许一个流式生成任务；后台默认 4 个工作线程、最多 32 个排队任务。读取历史不会等待模型生成。连接超时 10 秒、请求总超时 180 秒。
+- 单个用户同时允许一个生成任务；所有生成接口共用每日额度及全站并发上限，默认最多 4 个，交给 4 个工作线程处理。读取历史不会等待模型生成。连接超时 10 秒、请求总超时 180 秒。
 - 新会话以首条问题生成标题。重命名和删除写入 MySQL。删除采用 `chat_sessions.deleted` 标记，界面与历史接口不再返回该会话；原始消息行保留，暂未实现物理清理或恢复入口。新增格式的迟到队列消息会跳过已删除会话。
 - 成功或主动停止的轮次保存成完整的用户／助手消息对；模型请求失败时不提交该轮次到服务端历史，界面显示错误。
 
@@ -26,7 +26,7 @@ cmake --build build-chat -j2
 ctest --test-dir build-chat --output-on-failure
 ```
 
-原运行方式仍需 MySQL、已有 `ChatHttpServer.users` 和 `chat_message` 表、RabbitMQ 及相应模型环境变量。程序启动时自动创建新的 `chat_sessions` 表，并迁移旧消息对应的会话名称。启动账户需要该库的建表权限。数据库连接读取 `CHAT_MYSQL_URL`、`CHAT_MYSQL_USER`、`CHAT_MYSQL_PASSWORD` 和 `CHAT_MYSQL_DATABASE`，可在本机 `.env` 中配置。
+原运行方式仍需 MySQL、已有 `ChatHttpServer.users` 和 `chat_message` 表、RabbitMQ 及相应模型环境变量。程序启动时创建 `usage_daily` 表并升级旧账号密码，也会自动创建 `chat_sessions` 表，并迁移旧消息对应的会话名称。启动账户需要该库的建表权限。数据库连接读取 `CHAT_MYSQL_URL`、`CHAT_MYSQL_USER`、`CHAT_MYSQL_PASSWORD` 和 `CHAT_MYSQL_DATABASE`，可在本机 `.env` 中配置。
 
 ```bash
 # 先在启动服务的环境中配置实际使用的模型凭据和原有数据库/MQ服务。
@@ -44,7 +44,8 @@ bash scripts/run.sh 8080
 
 | 接口 | 请求／结果 |
 | --- | --- |
-| `POST /chat/stream` | `{question, modelType, requestId, sessionId?}`；SSE 事件依次为 `meta`、`status`、多个 `delta`、`done` 或 `error` |
+| `GET /chat/usage` | 当前账号每日上限、已用次数、当前剩余次数 |
+| `POST /chat/stream` | `{question, modelType?, requestId, sessionId?}`；SSE 事件依次为 `meta`、`status`、多个 `delta`、`done` 或 `error` |
 | `POST /chat/cancel` | `{requestId}`；取消当前用户对应任务 |
 | `GET /chat/sessions` | 返回会话 ID 与已保存的名称 |
 | `POST /chat/history` | `{sessionId}`；不存在或已删除返回 404 |
@@ -70,4 +71,4 @@ node tests/frontend.cjs
 # 也可设置 CHROME_PATH 指向已安装的 Chrome 可执行文件。
 ```
 
-此次未重构原有登录密码存储、TTS 延迟响应和 RabbitMQ 整体可靠性机制。生产 MQ 仍异步保存消息；断电、队列不可用等情况下的数据可靠性仍受原系统设计限制。
+账号安全、统一额度、TTS 的有界异步处理和部署配置现已补充，详见 [开放注册与公网部署](PUBLIC_DEPLOYMENT.md)。生产 MQ 仍异步保存消息；断电、队列不可用等情况下的数据可靠性仍受原系统设计限制。

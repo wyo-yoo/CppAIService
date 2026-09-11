@@ -73,6 +73,8 @@ public:
 
     // ---- 延迟响应支持：供异步 handler 使用 ----
     // 标记为延迟响应：网络线程跳过发送，由工作线程完成后调用 HttpServer::sendDeferredResponse 发送
+    void setDeferredHandler(std::function<void()> handler) { deferred_ = true; deferredHandler_ = std::move(handler); }
+    const std::function<void()>& deferredHandler() const { return deferredHandler_; }
     void setDeferred(bool on)
     { deferred_ = on; }
     bool deferred() const
@@ -125,6 +127,7 @@ private:
     bool                               deferred_;   // 是否为延迟响应（异步 handler 完成后发送）
     uint64_t                           deferredId_; // 延迟响应 ID（对应 HttpServer 中暂存的连接）
     StreamHandler streamHandler_;
+    std::function<void()> deferredHandler_;
 };
 
 } // namespace http

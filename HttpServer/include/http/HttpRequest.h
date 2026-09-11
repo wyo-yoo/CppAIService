@@ -12,6 +12,9 @@ namespace http
 class HttpRequest
 {
 public:
+    const std::string& peerIp() const { return peerIp_; }
+    void setPeerIp(std::string ip) { peerIp_ = std::move(ip); }
+
     enum Method
     {
         kInvalid, kGet, kPost, kHead, kPut, kDelete, kOptions
@@ -75,6 +78,7 @@ public:
     void swap(HttpRequest& that);
 
 private:
+    std::string peerIp_;
     Method                                       method_; // 请求方法
     std::string                                  version_; // http版本
     std::string                                  path_; // 请求路径

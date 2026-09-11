@@ -79,6 +79,21 @@ public:
     }
 
     bool ping();  // 添加检测连接是否有效的方法
+    // Keep all quota rows on one leased connection and commit them together.
+    template<typename Function>
+    void transaction(Function&& function) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        conn_->setAutoCommit(false);
+        try {
+            function(*conn_);
+            conn_->commit();
+            conn_->setAutoCommit(true);
+        } catch (...) {
+            try { conn_->rollback(); conn_->setAutoCommit(true); }
+            catch (...) { try { conn_->close(); } catch (...) {} }
+            throw;
+        }
+    }
 private:
      // 辅助函数：递归终止条件
     void bindParams(sql::PreparedStatement*, int) {}

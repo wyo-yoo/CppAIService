@@ -15,7 +15,7 @@ public:
     // 请求大小限制，防止慢速攻击和大包 DoS
     static constexpr size_t kMaxRequestLineLength = 8 * 1024;      // 请求行上限 8KB
     static constexpr size_t kMaxHeadersTotalSize  = 8 * 1024;      // 请求头总大小上限 8KB
-    static constexpr size_t kMaxBodySize          = 10 * 1024 * 1024; // 请求体上限 10MB
+    static constexpr size_t kMaxBodySize          = 64 * 1024; // Chat JSON requests are bounded to 64 KiB
 
     enum HttpRequestParseState
     {

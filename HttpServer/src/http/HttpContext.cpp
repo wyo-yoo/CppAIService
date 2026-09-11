@@ -40,6 +40,7 @@ bool HttpContext::parseRequest(Buffer *buf, Timestamp receiveTime)
             }
             else
             {
+                if (buf->readableBytes() > kMaxRequestLineLength) ok = false;
                 hasMore = false;
             }
         }
@@ -59,6 +60,9 @@ bool HttpContext::parseRequest(Buffer *buf, Timestamp receiveTime)
                 const char *colon = std::find(buf->peek(), crlf, ':');
                 if (colon < crlf)
                 {
+                    std::string key(buf->peek(), colon);
+                    std::transform(key.begin(),key.end(),key.begin(),[](unsigned char c){ return std::tolower(c); });
+                    if (key == "transfer-encoding" || ((key == "content-length" || key == "host") && !request_.getHeader(key).empty())) return false;
                     request_.addHeader(buf->peek(), colon, crlf);
                 }
                 else if (buf->peek() == crlf)
@@ -71,6 +75,7 @@ bool HttpContext::parseRequest(Buffer *buf, Timestamp receiveTime)
                         std::string contentLength = request_.getHeader("Content-Length");
                         if (!contentLength.empty())
                         {
+                            if (contentLength.find_first_not_of("0123456789") != std::string::npos) return false;
                             uint64_t cl = std::stoull(contentLength);
                             // 限制请求体大小，防止大包 DoS
                             if (cl > kMaxBodySize)
@@ -113,6 +118,7 @@ bool HttpContext::parseRequest(Buffer *buf, Timestamp receiveTime)
             }
             else
             {
+                if (headersParsedSize_ + buf->readableBytes() > kMaxHeadersTotalSize) ok = false;
                 hasMore = false;
             }
         }

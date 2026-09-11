@@ -2,6 +2,7 @@
 #include "AIUtil/MQManager.h"
 #include <algorithm>
 #include <chrono>
+#include "security/PublicAccess.h"
 
 namespace {
 long long nowMs() {
@@ -39,6 +40,15 @@ AIHelper::Result AIHelper::chatStream(int userId, const std::string& name, const
     if (!generation) throw std::runtime_error("This conversation is already generating a reply");
     auto strategy = StrategyFactory::instance().create(model);
     auto snapshot = GetMessages();
+    // Send only the most recent complete turns, bounded by both count and bytes.
+    size_t bytes = question.size();
+    size_t start = snapshot.size();
+    while (start >= 2 && snapshot.size() - start < 20) {
+        size_t pairBytes = snapshot[start-2].first.size() + snapshot[start-1].first.size();
+        if (bytes + pairBytes > 32768) break;
+        bytes += pairBytes; start -= 2;
+    }
+    snapshot.erase(snapshot.begin(),snapshot.begin()+start);
     const long long userTime = std::max(nowMs(), snapshot.empty() ? 0LL : snapshot.back().second + 1);
     Result result;
     std::string partial;
@@ -46,7 +56,11 @@ AIHelper::Result AIHelper::chatStream(int userId, const std::string& name, const
         if (cancelled && cancelled()) throw ChatCancelled();
         // 只有提供 delta 回调且策略声明为最终回答时才启用流式；MCP 的工具判断阶段先收完整 JSON。
         result.text = strategy->chat(snapshot, question, [&](const json& payload, bool finalAnswer) {
-            return ChatTransport::request(strategy->getApiUrl(), strategy->getApiKey(), payload,
+            auto bounded = payload;
+            const int maximum = settingInt("CHAT_MAX_OUTPUT_TOKENS",1024,64,8192);
+            if (model == "3") bounded["parameters"]["max_tokens"] = maximum;
+            else bounded["max_tokens"] = maximum;
+            return ChatTransport::request(strategy->getApiUrl(), strategy->getApiKey(), bounded,
                 static_cast<bool>(delta) && finalAnswer, model == "3",
                 // 每个片段先记入 partial，再交给 ChatFeatures 中的回调发送 SSE。
                 [&](const std::string& piece) { partial += piece; if (delta) delta(piece); }, cancelled);

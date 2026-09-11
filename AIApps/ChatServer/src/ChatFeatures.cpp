@@ -1,4 +1,5 @@
 #include "ChatServer.h"
+#include "security/Password.h"
 #include "AIUtil/AISessionIdGenerator.h"
 #include <algorithm>
 #include <cctype>
@@ -35,6 +36,7 @@ bool validId(const std::string& id) {
 
 ChatServer::~ChatServer() {
     { std::lock_guard<std::mutex> lock(chatJobsMutex_); for (auto& item : chatJobs_) item.second->cancelled = true; }
+    authWorkers_.shutdown();
     chatWorkers_.shutdown();
 }
 int ChatServer::authenticatedUser(const http::HttpRequest& request, http::HttpResponse* response, std::string* name) {
@@ -57,74 +59,84 @@ void ChatServer::initializeChatFeatures() {
     httpServer_.Post("/chat/sessions/delete", [this](const auto& req, auto* resp) { handleSessionDelete(req, resp); });
 }
 // 流式业务入口：校验用户与会话 -> 注册响应流 -> 工作线程请求模型 -> 增量推送回答。
-void ChatServer::handleChatStream(const http::HttpRequest& req, http::HttpResponse* resp) {
+void ChatServer::handleChatStream(const http::HttpRequest& req, http::HttpResponse* resp, bool streaming, bool newSession) {
     try {
         std::string username;
         int userId = authenticatedUser(req, resp, &username); if (userId < 0) return;
         auto body = json::parse(req.getBody());
         auto question = trim(body.at("question").get<std::string>());
         auto model = body.value("modelType", std::string("5"));
-        auto sid = body.value("sessionId", std::string());
-        auto requestId = body.at("requestId").get<std::string>();
-        if (question.empty() || question.size() > 32768) throw std::runtime_error("请输入问题，长度不超过 32KB");
-        if (model != "1" && model != "2" && model != "3" && model != "4" && model != "5") throw std::runtime_error("不支持的模型");
-        if (!std::regex_match(requestId, std::regex("[A-Za-z0-9_-]{1,64}"))) throw std::runtime_error("无效的请求编号");
-        if (!sid.empty() && !validId(sid)) throw std::runtime_error("无效的会话编号");
+        auto sid = newSession ? std::string() : body.value("sessionId", std::string());
+        auto requestId = streaming ? body.at("requestId").get<std::string>() : Password::randomToken();
+        if (question.empty() || question.size() > 8192) throw AccessError(400,"请输入问题，长度不超过 8KB");
+        if (!access_->modelAllowed(model)) throw AccessError(400,"此模型暂未开放使用");
+        if (!std::regex_match(requestId, std::regex("[A-Za-z0-9_-]{1,64}"))) throw AccessError(400,"无效的请求编号");
+        if (!sid.empty() && !validId(sid)) throw AccessError(400,"无效的会话编号");
         std::unique_lock<std::mutex> jobsLock(chatJobsMutex_);
-        for (const auto& item : chatJobs_) {
-            if (item.second->userId == userId) { reply(resp, req, 409, {{"success", false}, {"message", "请先停止或等待当前回复完成"}}); return; }
-        }
-        if (chatJobs_.count(requestId)) throw std::runtime_error("请求编号已存在");
+        if (chatJobs_.count(requestId)) throw AccessError(409,"请求编号已存在");
         std::shared_ptr<AIHelper> helper;
         std::string title;
+        std::shared_ptr<PublicAccess::Permit> permit;
         {
             std::lock_guard<std::mutex> lock(mutexForChatInformation);
             auto& sessions = chatInformation[userId];
+            if (!sid.empty() && !sessions.count(sid)) throw AccessError(404,"会话不存在或已删除");
+            if (sid.empty() && sessions.size() >= 100) throw AccessError(409,"最多保留 100 个会话，请删除不再需要的会话");
+            if (!sid.empty() && sessions.at(sid)->GetMessages().size() >= 200)
+                throw AccessError(409,"此会话已达到 100 轮，请开始新会话");
+            permit = access_->admit(userId,access_->clientIp(req));
             if (sid.empty()) {
                 sid = AISessionIdGenerator().generate(); title = titleFrom(question);
                 ensureSessionRecord(userId, sid, title);
                 sessions[sid] = std::make_shared<AIHelper>(); sessionNames_[userId][sid] = title;
                 std::lock_guard<std::mutex> idsLock(mutexForSessionsId);
                 sessionsIdsMap[userId].push_back(sid);
-            } else if (!sessions.count(sid)) {
-                reply(resp, req, 404, {{"success", false}, {"message", "会话不存在或已删除"}}); return;
             }
             helper = sessions.at(sid);
             title = sessionNames_[userId].count(sid) ? sessionNames_[userId].at(sid) : "会话 " + sid;
         }
         auto job = std::make_shared<ChatJob>(); job->userId = userId; job->sessionId = sid; job->requestId = requestId;
-        chatJobs_[requestId] = job;
-        resp->setStatusLine(req.getVersion(), http::HttpResponse::k200Ok, "OK");
-        // 这里只注册启动回调；HttpServer 先发送 SSE 响应头，再调用它，保证事件顺序正确。
-        resp->setStreamHandler([this, job, helper, username, question, model, title](std::shared_ptr<http::ResponseStream> stream) {
-            // meta 告知前端实际会话 ID；后续 status、delta、done/error 分别表示进度、片段和结束状态。
-            stream->send("meta", json{{"requestId", job->requestId}, {"sessionId", job->sessionId}, {"name", title}}.dump());
-            // 模型请求交给有界线程池，避免等待生成时阻塞处理网络连接的线程。
-            bool accepted = chatWorkers_.submit([this, job, helper, stream, username, question, model] {
+        job->permit = std::move(permit); chatJobs_[requestId] = job;
+        auto dispatch = [this,job,helper,username,question,model,title,req](std::shared_ptr<http::ResponseStream> stream, http::HttpResponse response) {
+            if (stream) stream->send("meta", json{{"requestId",job->requestId},{"sessionId",job->sessionId},{"name",title}}.dump());
+            auto release = [this,job] {
+                std::lock_guard<std::mutex> lock(chatJobsMutex_); chatJobs_.erase(job->requestId); job->permit.reset();
+            };
+            bool accepted = chatWorkers_.submit([this,job,helper,username,question,model,stream,response,req,release]() mutable {
                 try {
-                    stream->send("status", json{{"message", model == "4" ? "正在判断是否需要工具…" : "正在等待模型…"}}.dump());
-                    // 第一个回调把模型新增文本立即发为 delta；第二个回调检查主动停止或浏览器断连。
-                    auto result = helper->chatStream(job->userId, username, job->sessionId, question, model,
-                        [stream](const std::string& text) {
-                            if (!stream->send("delta", json{{"text", text}}.dump())) throw ChatCancelled();
-                        }, [job, stream] { return job->cancelled.load() || stream->closed(); });
-                    { std::lock_guard<std::mutex> lock(chatJobsMutex_); chatJobs_.erase(job->requestId); }
-                    // done 携带最终文本供前端校准；主动停止时返回已生成部分，并设置 stopped。
-                    stream->send("done", json{{"sessionId", job->sessionId}, {"stopped", result.stopped}, {"text", result.text}}.dump());
-                } catch (const std::exception& error) {
-                    { std::lock_guard<std::mutex> lock(chatJobsMutex_); chatJobs_.erase(job->requestId); }
-                    LOG_WARN << "Chat generation failed: " << error.what();
-                    stream->send("error", json{{"message", "生成失败，请检查模型配置或稍后重试"}}.dump());
+                    if (stream) stream->send("status",json{{"message","正在等待模型…"}}.dump());
+                    ChatTransport::Delta delta;
+                    if (stream) delta = [stream](const std::string& text) {
+                        if (!stream->send("delta",json{{"text",text}}.dump())) throw ChatCancelled();
+                    };
+                    auto result = helper->chatStream(job->userId,username,job->sessionId,question,model,delta,
+                        [job,stream]{ return job->cancelled.load() || (stream && stream->closed()); });
+                    release();
+                    if (stream) stream->send("done",json{{"sessionId",job->sessionId},{"stopped",result.stopped},{"text",result.text}}.dump());
+                    else accessReply(&response,req,200,{{"success",true},{"sessionId",job->sessionId},{"Information",result.text}});
+                } catch (...) {
+                    release();
+                    if (stream) stream->send("error",json{{"message","生成失败，请稍后重试"}}.dump());
+                    else accessReply(&response,req,503,{{"success",false},{"message","生成失败，请稍后重试"}});
                 }
-                // 完成或报错后结束本次响应流，让浏览器的 reader.read() 最终读到结束。
-                stream->finish();
+                if (stream) stream->finish(); else sendDeferredResponse(response);
             });
             if (!accepted) {
-                { std::lock_guard<std::mutex> lock(chatJobsMutex_); chatJobs_.erase(job->requestId); }
-                stream->send("error", json{{"message", "服务繁忙，请稍后重试"}}.dump()); stream->finish();
+                release();
+                if (stream) { stream->send("error",json{{"message","服务繁忙，请稍后重试"}}.dump()); stream->finish(); }
+                else { accessReply(&response,req,503,{{"message","服务繁忙，请稍后重试"}},5); sendDeferredResponse(response); }
             }
-        });
-    } catch (const std::exception& error) { reply(resp, req, 400, {{"success", false}, {"message", "请求无效或会话暂时无法保存"}}); }
+        };
+        if (streaming) {
+            resp->setStatusLine(req.getVersion(),http::HttpResponse::k200Ok,"OK");
+            resp->setStreamHandler([dispatch](std::shared_ptr<http::ResponseStream> stream) { dispatch(stream,http::HttpResponse()); });
+        } else {
+            auto response = *resp;
+            resp->setDeferredHandler([dispatch,response] { dispatch(nullptr,response); });
+        }
+    } catch (const AccessError& error) {
+        accessReply(resp,req,error.status,{{"success",false},{"message",error.what()}},error.retryAfter);
+    } catch (...) { accessReply(resp,req,400,{{"success",false},{"message","请求无效或会话暂时无法保存"}}); }
 }
 void ChatServer::handleChatCancel(const http::HttpRequest& req, http::HttpResponse* resp) {
     try {

@@ -1,0 +1,30 @@
+[Unit]
+Description=CppAIService chat application
+Wants=network-online.target mysql.service rabbitmq-server.service
+After=network-online.target mysql.service rabbitmq-server.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@PROJECT@
+ExecStartPre=/usr/bin/test -f @PROJECT@/.env
+ExecStart=/usr/bin/bash @PROJECT@/scripts/run.sh 8080
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LimitNOFILE=4096
+TasksMax=128
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

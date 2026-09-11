@@ -2,6 +2,12 @@
 
 本文前半部分说明**当前仓库的项目背景、实现流程和运行步骤**；文末保留原项目介绍与资料。功能状态和启动方式以当前代码及下文为准。
 
+## 开放注册与公网访问
+
+本版本已增加密码哈希、登录限速、统一生成额度和部署配置。默认每人每天 20 次、全站每天 200 次，最多同时处理 4 个生成请求。首次升级前请运行 `python3 scripts/backup_database.py`，应用会自动将旧账号密码转换成哈希。
+
+公网服务器、HTTPS、开机启动和备份配置见 [开放注册与公网部署](docs/PUBLIC_DEPLOYMENT.md)。当前代码准备好后仍需部署，GitHub 仓库地址不是可直接聊天的网站地址。
+
 ## 快速启动（Ubuntu 24.04）
 
 ```bash
@@ -45,7 +51,8 @@ CppAIService 是一个基于 C++17 的 AI 应用服务项目，在基于 Muduo �
 
 | 功能 | 当前实现 |
 | --- | --- |
-| 用户管理 | 注册、登录、退出，使用内存 Session 和 Cookie 维护登录状态 |
+| 用户管理 | 公开注册、密码哈希、登录限速、退出；内存 Session、登录时轮换 Cookie |
+| 使用额度 | 每人及全站每日次数、每分钟频率、统一并发上限；每日额度持久化到 MySQL |
 | 多模型对话 | `AIStrategy` + `StrategyFactory` 适配 DeepSeek、阿里百炼、豆包、百炼 RAG 和工具助手 |
 | 流式输出 | 通过 SSE 增量展示模型回复；后台工作线程执行模型请求 |
 | 停止生成 | 按请求 ID 取消生成，保留已生成文字；浏览器断开连接也会触发取消 |
@@ -53,7 +60,7 @@ CppAIService 是一个基于 C++17 的 AI 应用服务项目，在基于 Muduo �
 | 历史记录 | 内存中维护对话，RabbitMQ 异步写入 MySQL；启动时恢复已入库的记录 |
 | RAG | 调用配置了知识库的百炼应用；本仓库没有实现本地文档分块、向量化或 Faiss/Milvus 检索链路 |
 | 工具助手 | 根据提示词约定解析工具调用，执行天气／时间工具，再由模型组织回答；属于轻量工具调用实现，尚未实现完整 MCP 协议客户端／服务端 |
-| 语音 | 聊天页可调用百度 TTS 朗读；代码中包含 ASR 封装，当前页面未提供语音输入入口 |
+| 语音 | 配好凭据并设置 `CHAT_ENABLE_TTS=1` 后开放百度 TTS 朗读；默认关闭，启用后共用生成额度；ASR 仅有封装 |
 
 本地 LLaMA/llama.cpp 接入、完整 MCP 协议、自建向量检索以及 Docker Compose 一键部署仍需另行实现或补充。当前仓库的验证方式是 CMake 构建及独立测试脚本。
 
@@ -172,7 +179,7 @@ CREATE TABLE IF NOT EXISTS chat_message (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
-`chat_message.id` 是用户 ID，一位用户会有多条消息，不能把它单独设为消息表主键。第三张表 `chat_sessions` 由程序启动时自动创建，保存 `user_id`、`session_id`、`title` 和 `deleted`。
+`chat_message.id` 是用户 ID，一位用户会有多条消息，不能把它单独设为消息表主键。`chat_sessions` 由程序启动时自动创建，保存 `user_id`、`session_id`、`title` 和 `deleted`；`usage_daily` 保存账号、全站和注册的每日计数。
 
 MySQL 连接信息通过 `CHAT_MYSQL_URL`、`CHAT_MYSQL_USER`、`CHAT_MYSQL_PASSWORD` 和 `CHAT_MYSQL_DATABASE` 环境变量配置。`scripts/run.sh` 自动加载本机 `.env`，修改连接参数后重启程序即可，无需重新编译。Ubuntu 的系统管理账户不一定能直接通过 TCP 密码登录；建议运行 `python3 scripts/setup_database.py` 创建专用应用账户和基础表。应用账户需要读写以上数据表及创建 `chat_sessions` 的权限。
 
@@ -190,7 +197,7 @@ RabbitMQ 当前默认连接本机 `localhost:5672`，使用 `guest` 账户和 `/
 | 百炼 RAG | `DASHSCOPE_API_KEY` 和 `Knowledge_Base_ID` |
 | 百度语音合成 | `BAIDU_CLIENT_ID` 和 `BAIDU_CLIENT_SECRET` |
 
-聊天页默认选择 DeepSeek（`modelType=5`），接入官方 `/chat/completions` 接口并支持流式输出、停止生成和多轮历史。将密钥填入本机 `.env` 的 `DEEPSEEK_API_KEY` 后，使用 `bash scripts/run.sh 8080` 启动。模型名默认是 `deepseek-flash`，也可通过 `DEEPSEEK_MODEL` 切换为账号可用的模型。密钥不能填写到源码或 `.env.example` 中。
+聊天页默认只开放 DeepSeek（`modelType=5`）；其他模型需配置密钥并加入 `CHAT_ALLOWED_MODELS`。DeepSeek 接入官方 `/chat/completions` 接口，支持流式输出、停止生成和多轮历史。将密钥填入本机 `.env` 的 `DEEPSEEK_API_KEY` 后，使用 `bash scripts/run.sh 8080` 启动。模型名默认是 `deepseek-flash`，也可通过 `DEEPSEEK_MODEL` 切换为账号可用的模型。密钥不能填写到源码或 `.env.example` 中。
 
 例如，只体验百炼聊天时，可以通过交互输入设置密钥：
 
@@ -224,7 +231,7 @@ cd /home/wy/project/CppAIService
 ctest --test-dir build-chat --output-on-failure
 ```
 
-默认三组测试覆盖核心对话逻辑、模型传输和实际 HTTP 流式响应，使用本地模拟模型，无需付费模型密钥。需要检查真实 MySQL 的会话恢复行为时，可运行隔离的集成测试：
+默认四组测试覆盖核心对话逻辑、账号安全、模型传输和实际 HTTP 流式响应，使用本地模拟模型，无需付费模型密钥。需要检查真实 MySQL 的会话恢复行为时，可运行隔离的集成测试：
 
 ```bash
 python3 tests/test_sessions.py build-chat/chat_session_fixture /usr/sbin/mysqld
@@ -241,18 +248,18 @@ bash scripts/run.sh 8080
 
 `scripts/run.sh` 会切换到项目下一级的构建目录，以匹配现有 `../AIApps/ChatServer/resource/` 相对资源路径。启动前应完成数据库、RabbitMQ 和所用模型的配置。
 
-在虚拟机内访问 `http://127.0.0.1:8080/`；在当前宿主机浏览器中访问 `http://192.168.135.129:8080/`。如果虚拟机 IP 或端口改变，使用实际地址。
+默认只在虚拟机的 `127.0.0.1:8080` 监听。Windows 可通过 `ssh -N -L 8080:127.0.0.1:8080 wy@192.168.135.129` 转发后访问 `http://localhost:8080/`；公网访问按 [部署说明](docs/PUBLIC_DEPLOYMENT.md) 配置 HTTPS 代理。
 
 ## 页面使用步骤
 
-1. 打开入口页，注册账户并登录，进入应用菜单。
+1. 打开入口页，注册账户并登录，进入聊天页面。
 2. 进入 AI 聊天，选择已经配置好的模型。
 3. 直接发送第一条问题，系统自动创建会话并生成标题，也可以先点击“新建会话”。
 4. 观察回答逐段出现；需要结束当前回答时点击“停止生成”，随后可以继续追问。
 5. 使用左侧列表切换会话。生成期间切换不会改变回答所属的会话，可通过“返回生成中的会话”切回。
 6. 使用重命名、名称搜索和导出管理对话；不再需要的会话可以删除。手机上通过顶部菜单打开会话列表。
 
-同一用户同时只允许一个流式生成任务。登录状态存储在内存中，服务重启后需要重新登录；已入库的聊天历史和会话名称会从 MySQL 恢复。
+同一用户同时只允许一个生成任务，聊天和启用后的语音共用次数额度。登录状态存储在内存中，服务重启后需要重新登录；已入库的聊天历史和会话名称会从 MySQL 恢复。
 
 ## 代码阅读与二次开发步骤
 
@@ -442,4 +449,3 @@ AI开发的各种细节
 ## 获取本项目专栏
 
 **本文档仅为星球内部专享，大家可以加入[知识星球](https://programmercarl.com/other/kstar.html)里获取，在星球置顶一**
-
