@@ -5,8 +5,6 @@
 #include"../include/handlers/ChatEntryHandler.h"
 #include"../include/handlers/ChatSendHandler.h"
 #include"../include/handlers/AIMenuHandler.h"
-#include"../include/handlers/AIUploadSendHandler.h"
-#include"../include/handlers/AIUploadHandler.h"
 #include"../include/handlers/ChatHistoryHandler.h"
 
 
@@ -23,6 +21,13 @@
 
 using namespace http;
 
+namespace {
+std::string envOrDefault(const char* name, const char* fallback) {
+    const char* value = std::getenv(name);
+    return value ? value : fallback;
+}
+} // namespace
+
 
 ChatServer::ChatServer(int port,
     const std::string& name,
@@ -34,7 +39,11 @@ ChatServer::ChatServer(int port,
 
 void ChatServer::initialize() {
     std::cout << "ChatServer initialize start  ! " << std::endl;
-	http::MysqlUtil::init("tcp://127.0.0.1:3306", "root", "123456", "ChatHttpServer", 5);
+    http::MysqlUtil::init(
+        envOrDefault("CHAT_MYSQL_URL", "tcp://127.0.0.1:3306"),
+        envOrDefault("CHAT_MYSQL_USER", "cppaiservice"),
+        envOrDefault("CHAT_MYSQL_PASSWORD", ""),
+        envOrDefault("CHAT_MYSQL_DATABASE", "ChatHttpServer"), 5);
 
     initializeSession();
 
@@ -149,10 +158,6 @@ void ChatServer::initializeRouter() {
     httpServer_.Post("/chat/send", std::make_shared<ChatSendHandler>(this));
  
     httpServer_.Get("/menu", std::make_shared<AIMenuHandler>(this));
-    
-    httpServer_.Get("/upload", std::make_shared<AIUploadHandler>(this));
-   
-    httpServer_.Post("/upload/send", std::make_shared<AIUploadSendHandler>(this));
     
     httpServer_.Post("/chat/history", std::make_shared<ChatHistoryHandler>(this));
 

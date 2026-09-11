@@ -8,6 +8,16 @@ try:
         try:
             with socket.create_connection(('127.0.0.1',port),timeout=.1): break
         except OSError: time.sleep(.03)
+    # Removed or unknown routes must have a valid HTTP status line, not a protocol error.
+    for method, path in [('GET', '/missing-page'), ('POST', '/missing-endpoint')]:
+        missing=http.client.HTTPConnection('127.0.0.1',port,timeout=3)
+        missing.request(method,path)
+        response=missing.getresponse()
+        assert response.status==404
+        assert response.version==11
+        assert response.getheader('Content-Length')=='0'
+        assert response.read()==b''
+        missing.close()
     conn=http.client.HTTPConnection('127.0.0.1',port,timeout=3)
     start=time.monotonic(); conn.request('POST','/stream',body='{}',headers={'Content-Type':'application/json'})
     response=conn.getresponse()

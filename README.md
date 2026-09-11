@@ -2,6 +2,26 @@
 
 本文前半部分说明**当前仓库的项目背景、实现流程和运行步骤**；文末保留原项目介绍与资料。功能状态和启动方式以当前代码及下文为准。
 
+## 快速启动（Ubuntu 24.04）
+
+```bash
+git clone https://github.com/wy192721/CppAIService.git
+cd CppAIService
+bash scripts/install-deps.sh
+python3 scripts/setup_database.py
+# 在生成的 .env 中填写要使用的模型 API Key。
+bash scripts/build.sh
+bash scripts/run.sh 8080
+```
+
+`install-deps.sh` 安装系统库、MySQL/RabbitMQ，并从固定版本源码构建 Muduo 与 SimpleAmqpClient。安装前缀默认是项目同级的 `.cppaiservice-deps/install`，可通过 `CPP_AI_DEPS_DIR` 修改依赖目录；构建脚本使用相同变量。
+
+`setup_database.py` 用 `sudo mysql` 创建本机应用账户和基础表，生成随机数据库密码并写入权限为 `600` 的 `.env`。sudo 提示要求的是 Ubuntu 登录密码。已有账户、已有表和已有数据会保留；已有 `.env` 时使用其中的数据库配置，不重置已有账户密码。
+
+`.env`、编译目录、编译产物和本机编辑器配置均不提交到 GitHub。已有数据库时可复制 `.env.example` 为 `.env`，填写连接信息后按下文核对表结构。
+
+只启动网页和登录功能无需模型密钥；真实聊天、RAG 和语音调用需要相应服务的有效凭据。
+
 ## 目录
 
 - [项目背景](#项目背景)
@@ -15,7 +35,7 @@
 
 ## 项目背景
 
-CppAIService 是一个基于 C++17 的 AI 应用服务项目，在基于 Muduo 的 HTTP 服务框架上实现用户登录、多模型对话、会话管理、语音合成和图像识别等能力。浏览器提供交互界面，C++ 服务负责请求处理、上下文管理、模型调用和数据存储。
+CppAIService 是一个基于 C++17 的 AI 应用服务项目，在基于 Muduo 的 HTTP 服务框架上实现用户登录、多模型对话、会话管理和语音合成等能力。浏览器提供交互界面，C++ 服务负责请求处理、上下文管理、模型调用和数据存储。
 
 把大模型接入应用后，还需要处理一些具体问题：不同厂商的请求格式不同，多轮对话需要保留上下文，多用户之间需要隔离数据，模型生成较慢时页面需要及时反馈，聊天记录还需要在服务重启后恢复。本项目围绕这些问题，将 HTTP 层、聊天业务层、模型策略层和存储层组织起来，便于分别理解和扩展。
 
@@ -34,7 +54,6 @@ CppAIService 是一个基于 C++17 的 AI 应用服务项目，在基于 Muduo �
 | RAG | 调用配置了知识库的百炼应用；本仓库没有实现本地文档分块、向量化或 Faiss/Milvus 检索链路 |
 | 工具助手 | 根据提示词约定解析工具调用，执行天气／时间工具，再由模型组织回答；属于轻量工具调用实现，尚未实现完整 MCP 协议客户端／服务端 |
 | 语音 | 聊天页可调用百度 TTS 朗读；代码中包含 ASR 封装，当前页面未提供语音输入入口 |
-| 图像识别 | OpenCV + ONNX Runtime 执行图像分类，需启用构建选项并准备模型和标签文件 |
 
 本地 LLaMA/llama.cpp 接入、完整 MCP 协议、自建向量检索以及 Docker Compose 一键部署仍需另行实现或补充。当前仓库的验证方式是 CMake 构建及独立测试脚本。
 
@@ -50,7 +69,7 @@ CppAIService/
 │   └── src/                      # 对应实现，包含 SSE 响应输出
 ├── AIApps/ChatServer/
 │   ├── include/AIUtil/           # 模型策略、AIHelper、流式传输、任务池等
-│   ├── include/handlers/         # 登录、聊天、历史、语音、图片等处理器
+│   ├── include/handlers/         # 登录、聊天、历史、语音等处理器
 │   ├── src/main.cpp              # 程序入口、消息队列消费与入库
 │   ├── src/ChatServer.cpp        # 服务初始化、路由注册和历史恢复
 │   ├── src/ChatFeatures.cpp      # 流式聊天、取消、会话重命名与删除
@@ -155,7 +174,7 @@ CREATE TABLE IF NOT EXISTS chat_message (
 
 `chat_message.id` 是用户 ID，一位用户会有多条消息，不能把它单独设为消息表主键。第三张表 `chat_sessions` 由程序启动时自动创建，保存 `user_id`、`session_id`、`title` 和 `deleted`。
 
-当前 MySQL 地址、用户、密码和库名在 `AIApps/ChatServer/src/ChatServer.cpp` 的 `MysqlUtil::init(...)` 中设置，需要与实际 MySQL 账户匹配；Ubuntu 的系统管理账户不一定能直接通过 TCP 密码登录。配置的应用账户需要读写以上数据表及创建 `chat_sessions` 的权限。修改 C++ 中的连接参数后需重新编译。
+MySQL 连接信息通过 `CHAT_MYSQL_URL`、`CHAT_MYSQL_USER`、`CHAT_MYSQL_PASSWORD` 和 `CHAT_MYSQL_DATABASE` 环境变量配置。`scripts/run.sh` 自动加载本机 `.env`，修改连接参数后重启程序即可，无需重新编译。Ubuntu 的系统管理账户不一定能直接通过 TCP 密码登录；建议运行 `python3 scripts/setup_database.py` 创建专用应用账户和基础表。应用账户需要读写以上数据表及创建 `chat_sessions` 的权限。
 
 RabbitMQ 当前默认连接本机 `localhost:5672`，使用 `guest` 账户和 `/` vhost，队列名为 `sql_queue`。更换连接配置时应同时核对 `MQManager.cpp` 的发布端、消费端，以及 `main.cpp` 的主机设置。
 
@@ -189,12 +208,11 @@ cd /home/wy/project/CppAIService
 cmake -S . -B build-chat \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_PREFIX_PATH=/home/wy/project/.cppaiservice-deps/install \
-  -DCHAT_ENABLE_IMAGES=OFF \
   -DCHAT_BUILD_TESTS=ON
 cmake --build build-chat -j2
 ```
 
-这里显式关闭图像识别，便于先运行聊天功能；这个构建的图片识别接口会返回 503。`CHAT_ENABLE_IMAGES` 默认值为 `ON`，完整构建还需要 OpenCV、ONNX Runtime、模型和标签文件，并核对 `AIUploadSendHandler.cpp` 中的模型路径以及 `ImageRecognizer.h` 中的标签路径。
+该构建包含当前保留的聊天、会话管理、工具助手和语音功能。
 
 ### 第五步：运行测试
 
@@ -214,11 +232,11 @@ python3 tests/test_sessions.py build-chat/chat_session_fixture /usr/sbin/mysqld
 ### 第六步：启动服务并访问页面
 
 ```bash
-cd /home/wy/project/CppAIService/build-chat
-./http_server -p 8080
+cd /home/wy/project/CppAIService
+bash scripts/run.sh 8080
 ```
 
-必须从项目下一级的构建目录启动，以匹配现有 `../AIApps/ChatServer/resource/` 相对资源路径。启动前应完成数据库、RabbitMQ 和所用模型的配置。
+`scripts/run.sh` 会切换到项目下一级的构建目录，以匹配现有 `../AIApps/ChatServer/resource/` 相对资源路径。启动前应完成数据库、RabbitMQ 和所用模型的配置。
 
 在虚拟机内访问 `http://127.0.0.1:8080/`；在当前宿主机浏览器中访问 `http://192.168.135.129:8080/`。如果虚拟机 IP 或端口改变，使用实际地址。
 
@@ -256,7 +274,6 @@ cd /home/wy/project/CppAIService/build-chat
 | 找不到 HTML 或工具配置文件 | 确认程序从 `build-chat` 等项目下一级目录启动 |
 | 回答一次性出现，代理后不再流式 | 检查反向代理是否启用了响应缓冲，并设置足够长的读取超时 |
 | 重启后缺少最近的消息 | 检查 RabbitMQ 消费日志及 MySQL 写入，页面完成生成与异步入库不是同一时刻 |
-| 图片识别返回 503 | 当前构建关闭了 `CHAT_ENABLE_IMAGES`，需准备图像依赖后重新配置构建 |
 
 ## 原项目介绍与资料
 
@@ -272,7 +289,7 @@ cd /home/wy/project/CppAIService/build-chat
 
 **现在AI应用服务平台第二版（C++），正式发布**！
 
-这次，在自研 [C++ HTTP 框架](https://programmercarl.com/other/project_http.html)上，**把多模型对话、RAG、轻量级 MCP、ASR/TTS、图像识别、消息队列异步化、会话多租户化 全部落地，并用策略模式 + 注册式工厂把“接什么模型、怎么调用、能否用工具”彻底解耦**。
+这次，在自研 [C++ HTTP 框架](https://programmercarl.com/other/project_http.html)上，**把多模型对话、RAG、轻量级 MCP、ASR/TTS、消息队列异步化、会话多租户化 全部落地，并用策略模式 + 注册式工厂把“接什么模型、怎么调用、能否用工具”彻底解耦**。
 
 第二版不是简单加功能，而是把AI 应用工程化做深做透。
 
@@ -327,14 +344,14 @@ cd /home/wy/project/CppAIService/build-chat
 
 ![](https://file1.kamacoder.com/i/web/2025-10-15_16-19-50.jpg)
 
-架构图展示了 自研 [C++ HTTP 服务框架](https://programmercarl.com/other/project_http.html) 如何将 AI 模型调用、图像识别、消息队列、数据库存储与多厂商模型 API 进行解耦，实现了高性能、可扩展、可私有化部署的 AI 应用平台。
+架构图展示了 自研 [C++ HTTP 服务框架](https://programmercarl.com/other/project_http.html) 如何将 AI 模型调用、消息队列、数据库存储与多厂商模型 API 进行解耦，实现了高性能、可扩展、可私有化部署的 AI 应用平台。
 
 整个系统从上到下可分为四层：
 
-* 客户端层	用户通过 Web / 命令行 / 其他 SDK 发起请求（例如 AI 聊天、文档问答、图像识别等）
-* 业务服务层（C++ 框架核心）	提供对话服务、图像识别服务、用户管理服务，是整个平台的核心逻辑层
+* 客户端层	用户通过 Web / 命令行 / 其他 SDK 发起请求（例如 AI 聊天、文档问答等）
+* 业务服务层（C++ 框架核心）	提供对话服务、用户管理服务，是整个平台的核心逻辑层
 * 数据与消息层	负责业务数据的存储、异步任务的转发与缓冲，提升系统稳定性与并发性能
-* 推理与第三方平台层	对接多家 AI 大模型（阿里云、百度智能云、火山引擎等）以及本地推理引擎（ONNXRuntime）
+* 推理与第三方平台层	对接多家 AI 大模型（阿里云、百度智能云、火山引擎等）
 
 ## 流程图
 
@@ -347,7 +364,6 @@ cd /home/wy/project/CppAIService/build-chat
 该系统基于[自研的 C++ HTTP 服务框架](https://programmercarl.com/other/project_http.html) 构建，是一个支持：
 
 * 多模型接入（GPT / 通义 / 豆包 / 百炼 / 百川）
-* 图像识别（ONNX + OpenCV）
 * 语音识别与合成（ASR/TTS）
 * 异步消息入库（RabbitMQ）
 * 多会话管理
@@ -359,7 +375,7 @@ cd /home/wy/project/CppAIService/build-chat
 
 * 接收客户端请求；
 * 调用对应业务 Handler；
-* 根据类型分发到不同 AI 模块（聊天、图像识别、语音）；
+* 根据类型分发到不同 AI 模块（聊天、语音）；
 * 将结果异步入库或交由队列处理。
 
 ## 做完这个项目你将收获什么？
@@ -380,7 +396,6 @@ cd /home/wy/project/CppAIService/build-chat
 * 如何实现类似 MCP（Model Context Protocol） 的上下文管理；
 * 如何用 RabbitMQ + 线程池 做异步入库和任务调度；
 * 如何接入 语音识别（ASR）+ 语音合成（TTS）；
-* 如何集成本地 ONNX 模型推理；
 * 如何设计 多会话隔离与上下文管理；
 * 如何让一个 AI 服务同时支持 云端模型与本地推理 模式。
 

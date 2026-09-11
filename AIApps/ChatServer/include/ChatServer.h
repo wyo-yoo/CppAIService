@@ -18,9 +18,6 @@
 #include "utils/JsonUtil.h"
 #include"AIUtil/AISpeechProcessor.h"
 #include"AIUtil/AIHelper.h"
-#if CHAT_ENABLE_IMAGES
-#include "AIUtil/ImageRecognizer.h"
-#endif
 #include"AIUtil/base64.h"
 #include"AIUtil/MQManager.h"
 #include "AIUtil/ChatTaskPool.h"
@@ -35,8 +32,6 @@ class ChatSendHandler;
 class ChatHistoryHandler;
 
 class AIMenuHandler;
-class AIUploadHandler;
-class AIUploadSendHandler;
 
 
 class ChatCreateAndSendHandler;
@@ -66,8 +61,6 @@ private:
 	friend class ChatEntryHandler;
 	friend class ChatSendHandler;
 	friend class AIMenuHandler;
-	friend class AIUploadHandler;
-	friend class AIUploadSendHandler;
 	friend class ChatHistoryHandler;
 
 	friend class ChatCreateAndSendHandler;
@@ -116,11 +109,6 @@ private:
 
 	std::unordered_map<int, std::unordered_map<std::string,std::shared_ptr<AIHelper> > > chatInformation;
 	std::mutex	mutexForChatInformation;
-
-#if CHAT_ENABLE_IMAGES
-	std::unordered_map<int, std::shared_ptr<ImageRecognizer> > ImageRecognizerMap;
-#endif
-	std::mutex	mutexForImageRecognizerMap;
 
 	std::unordered_map<int,std::vector<std::string> > sessionsIdsMap;
 	std::mutex mutexForSessionsId;

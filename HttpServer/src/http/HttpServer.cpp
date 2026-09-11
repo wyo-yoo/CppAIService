@@ -9,10 +9,10 @@ namespace http
 {
 
 // 默认http回应函数
-void defaultHttpCallback(const HttpRequest &, HttpResponse *resp)
+void defaultHttpCallback(const HttpRequest &req, HttpResponse *resp)
 {
-    resp->setStatusCode(HttpResponse::k404NotFound);
-    resp->setStatusMessage("Not Found");
+    resp->setStatusLine(req.getVersion(), HttpResponse::k404NotFound, "Not Found");
+    resp->setContentLength(0);
     resp->setCloseConnection(true);
 }
 
@@ -270,9 +270,7 @@ void HttpServer::handleRequest(const HttpRequest &req, HttpResponse *resp)
         {
             LOG_INFO << "请求的啥，url：" << req.method() << " " << req.path();
             LOG_INFO << "未找到路由，返回404";
-            resp->setStatusCode(HttpResponse::k404NotFound);
-            resp->setStatusMessage("Not Found");
-            resp->setCloseConnection(true);
+            defaultHttpCallback(mutableReq, resp);
         }
 
         // 处理响应后的中间件

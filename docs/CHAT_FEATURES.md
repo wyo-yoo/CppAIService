@@ -14,30 +14,28 @@
 
 要求 C++17、CMake、Muduo、SimpleAmqpClient/rabbitmq-c、MySQL Connector/C++、MySQL C 客户端、OpenSSL、libcurl、Boost chrono/system、nlohmann_json。
 
-在当前虚拟机中，Muduo 和 SimpleAmqpClient 的安装目录是 `/home/wy/project/.cppaiservice-deps/install`。聊天功能验证构建不需要原图像分类使用的 OpenCV/ONNX：
+在当前虚拟机中，Muduo 和 SimpleAmqpClient 的安装目录是 `/home/wy/project/.cppaiservice-deps/install`。使用该路径配置构建：
 
 ```bash
 cd /home/wy/project/CppAIService
 cmake -S . -B build-chat \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_PREFIX_PATH=/home/wy/project/.cppaiservice-deps/install \
-  -DCHAT_ENABLE_IMAGES=OFF -DCHAT_BUILD_TESTS=ON
+  -DCHAT_BUILD_TESTS=ON
 cmake --build build-chat -j2
 ctest --test-dir build-chat --output-on-failure
 ```
 
-`CHAT_ENABLE_IMAGES` 默认是 `ON`，保留完整构建的图像分类依赖。上述验证构建显式关闭图像分类，该构建的上传识别接口会返回 503；完整运行时应在安装 OpenCV/ONNX 后使用 `-DCHAT_ENABLE_IMAGES=ON`。
-
-原运行方式仍需 MySQL、已有 `ChatHttpServer.users` 和 `chat_message` 表、RabbitMQ 及相应模型环境变量。程序启动时自动创建新的 `chat_sessions` 表，并迁移旧消息对应的会话名称。启动账户需要该库的建表权限。原数据库连接配置仍在 `ChatServer::initialize()`，未替换用户配置文件。
+原运行方式仍需 MySQL、已有 `ChatHttpServer.users` 和 `chat_message` 表、RabbitMQ 及相应模型环境变量。程序启动时自动创建新的 `chat_sessions` 表，并迁移旧消息对应的会话名称。启动账户需要该库的建表权限。数据库连接读取 `CHAT_MYSQL_URL`、`CHAT_MYSQL_USER`、`CHAT_MYSQL_PASSWORD` 和 `CHAT_MYSQL_DATABASE`，可在本机 `.env` 中配置。
 
 ```bash
 # 先在启动服务的环境中配置实际使用的模型凭据和原有数据库/MQ服务。
 # 百炼：DASHSCOPE_API_KEY；豆包：DOUBAO_API_KEY；RAG 另需 Knowledge_Base_ID。
-cd /home/wy/project/CppAIService/build-chat
-./http_server -p 8080
+cd /home/wy/project/CppAIService
+bash scripts/run.sh 8080
 ```
 
-从构建目录启动，以兼容原有 `../AIApps/ChatServer/resource/` 资源路径。如有反向代理，须允许流式转发、关闭响应缓冲并配置足够长的读取超时。
+启动脚本会切换到构建目录，以兼容原有 `../AIApps/ChatServer/resource/` 资源路径。如有反向代理，须允许流式转发、关闭响应缓冲并配置足够长的读取超时。
 
 ## 接口
 
@@ -71,4 +69,4 @@ node tests/frontend.cjs
 # 也可设置 CHROME_PATH 指向已安装的 Chrome 可执行文件。
 ```
 
-此次未重构原有登录密码存储、图像识别、TTS 延迟响应和 RabbitMQ 整体可靠性机制。生产 MQ 仍异步保存消息；断电、队列不可用等情况下的数据可靠性仍受原系统设计限制。
+此次未重构原有登录密码存储、TTS 延迟响应和 RabbitMQ 整体可靠性机制。生产 MQ 仍异步保存消息；断电、队列不可用等情况下的数据可靠性仍受原系统设计限制。
